@@ -4,7 +4,12 @@ import { join } from 'path'
 import { File } from './utils'
 
 // 接口定义
-export interface CommandOption { name: string; description: string; syntax: string }
+export interface CommandOption {
+  name: string;
+  description: string;
+  syntax: string
+}
+
 export interface CommandData {
   name: string;
   description: string;
@@ -28,12 +33,11 @@ export class Extract {
    */
   constructor(ctx: Context, locale?: string) {
     this.ctx = ctx
-    this.locale = locale || 'zh-CN'
+    this.locale = locale
 
-    // 修正目录结构 - 基础目录为data/test，commands为子目录
     const dataDir = join(ctx.baseDir, 'data/test')
     this.file = new File(dataDir)
-    this.commandsDir = join(dataDir, 'commands') // 恢复使用commands子目录
+    this.commandsDir = join(dataDir, 'commands')
   }
 
   /**
@@ -117,7 +121,6 @@ export class Extract {
    * 获取处理后的命令数据
    */
   public async getProcessedCommands(locale: string): Promise<CommandData[]> {
-    // 内联 extractCommands 方法
     const session = this.createSession(locale)
     const rootCommands = this.ctx.$commander._commandList.filter((cmd: any) => !cmd.parent)
     const commands = (await Promise.all(
@@ -125,23 +128,18 @@ export class Extract {
     ))
       .filter(Boolean)
       .sort((a, b) => a.name.localeCompare(b.name))
-
     // 创建深拷贝
     const simplifiedData = JSON.parse(JSON.stringify(commands))
 
-    // 内联 processCommandItem 方法
     const processCmd = (cmd: any): void => {
       if (!cmd) return
-
       // 简化描述字段
       if (Array.isArray(cmd.description)) cmd.description = this.simplifyText(cmd.description)
       if (Array.isArray(cmd.usage)) cmd.usage = this.simplifyText(cmd.usage)
-
       // 处理选项描述
       cmd.options?.forEach(opt => {
         if (Array.isArray(opt.description)) opt.description = this.simplifyText(opt.description)
       })
-
       // 递归处理子命令
       cmd.subCommands?.forEach(processCmd)
     }
@@ -164,14 +162,12 @@ export class Extract {
       const getText = (key: string, defaultValue = "") => {
         return session.text([`commands.${command.name}.${key}`, defaultValue], command.params || {})
       }
-
       // 基本信息
       const description = getText('description')
       const rawUsage = command._usage
       const usage = rawUsage
         ? (typeof rawUsage === "string" ? rawUsage : await rawUsage(session))
         : getText('usage')
-
       // 提取选项
       const options: CommandOption[] = []
       if (command._options) {
@@ -229,9 +225,7 @@ export class Extract {
     if (!name) return null
 
     try {
-      // 处理普通命令和子命令
       let current = this.ctx.$commander.get(name)
-
       // 如果是子命令，逐层查找
       if (name.includes('.')) {
         const parts = name.split('.')
@@ -264,5 +258,38 @@ export class Extract {
 
     this.ctx.$commander._commandList.forEach(collectCommands)
     return Array.from(processed)
+  }
+  /**
+   * 将命令数组转换为Map结构
+   */
+  public commandsToMap(commands: CommandData[]): Map<string, CommandData> {
+    const map = new Map<string, CommandData>();
+
+    const addCommand = (cmd: CommandData) => {
+      map.set(cmd.name, cmd);
+      cmd.subCommands?.forEach(addCommand);
+    };
+
+    commands.forEach(addCommand);
+    return map;
+  }
+
+  /**
+   * 根据名称获取命令数据，支持父子命令查找
+   */
+  public findCommandByName(commands: CommandData[], name: string): CommandData | null {
+    // 直接查找
+    let found = commands.find(cmd => cmd.name === name);
+    if (found) return found;
+
+    // 在子命令中递归查找
+    for (const cmd of commands) {
+      if (cmd.subCommands?.length) {
+        found = this.findCommandByName(cmd.subCommands, name);
+        if (found) return found;
+      }
+    }
+
+    return null;
   }
 }

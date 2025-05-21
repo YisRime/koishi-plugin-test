@@ -62,4 +62,40 @@ export class File {
       return false
     }
   }
+
+  /**
+   * 检查文件是否存在
+   */
+  public fileExists(path: string): boolean {
+    return existsSync(path)
+  }
+
+  /**
+   * 列出目录中的所有文件
+   */
+  public async listFiles(dirPath: string): Promise<string[]> {
+    try {
+      const dir = resolve(this.basePath, dirPath)
+      if (!existsSync(dir)) return []
+      const files = await fs.readdir(dir)
+      return files
+    } catch (err) {
+      logger.error(`读取目录失败: ${dirPath}`, err)
+      return []
+    }
+  }
+
+  /**
+   * 复制文件
+   */
+  public async copyFile(source: string, target: string): Promise<boolean> {
+    try {
+      await this.ensureDir(target)
+      await fs.copyFile(source, target)
+      return true
+    } catch (err) {
+      logger.error(`复制文件失败: ${source} -> ${target}`, err)
+      return false
+    }
+  }
 }
