@@ -1,9 +1,9 @@
 import { promises as fs, existsSync } from 'fs'
-import { resolve } from 'path'
+import { resolve, dirname } from 'path'
 import { logger } from './index'
 
 /**
- * 简化的文件操作类
+ * 文件操作类
  */
 export class File {
   private basePath: string
@@ -13,14 +13,17 @@ export class File {
   }
 
   /**
-   * 初始化目录
+   * 确保目录存在
    */
-  public async initializeDir(path: string): Promise<boolean> {
+  public async ensureDir(path: string): Promise<boolean> {
     try {
-      await fs.mkdir(path, { recursive: true })
+      const dir = dirname(path)
+      if (!existsSync(dir)) {
+        await fs.mkdir(dir, { recursive: true })
+      }
       return true
     } catch (err) {
-      logger.error('初始化目录失败', err)
+      logger.error('创建目录失败', err)
       return false
     }
   }
@@ -30,6 +33,7 @@ export class File {
    */
   public async writeFile(path: string, data: string): Promise<boolean> {
     try {
+      await this.ensureDir(path)
       await fs.writeFile(path, data, 'utf8')
       return true
     } catch (err) {

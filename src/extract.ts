@@ -21,14 +21,26 @@ export class Extract {
   private ctx: Context
   public locale: string
   public file: File
+  private readonly commandsDir: string
 
   /**
    * 构造函数
    */
   constructor(ctx: Context, locale?: string) {
     this.ctx = ctx
-    this.file = new File(join(ctx.baseDir, 'data/test'))
-    this.locale = locale || ''
+    this.locale = locale || 'zh-CN'
+
+    // 修正目录结构 - 基础目录为data/test，commands为子目录
+    const dataDir = join(ctx.baseDir, 'data/test')
+    this.file = new File(dataDir)
+    this.commandsDir = join(dataDir, 'commands') // 恢复使用commands子目录
+  }
+
+  /**
+   * 获取命令数据文件路径
+   */
+  private getCommandsFilePath(locale?: string): string {
+    return join(this.commandsDir, `commands_${locale || this.locale}.json`)
   }
 
   /**
@@ -51,26 +63,24 @@ export class Extract {
       return false
     }
 
-    const path = join(this.ctx.baseDir, 'data/test', `commands_${locale || this.locale}.json`)
+    const path = this.getCommandsFilePath(locale)
+    // 确保命令目录存在
+    await this.file.ensureDir(path)
     return this.file.writeFile(path, JSON.stringify(commands, null, 2))
   }
 
   public async loadCommandsData(locale?: string): Promise<CommandData[]|null> {
-    const path = join(this.ctx.baseDir, 'data/test', `commands_${locale || this.locale}.json`)
+    const path = this.getCommandsFilePath(locale)
     const data = await this.file.readFile(path)
     if (!data) return null
 
     try {
       const parsed = JSON.parse(data)
       return Array.isArray(parsed) ? parsed : null
-    } catch {
+    } catch (err) {
+      logger.error(`解析命令数据失败: ${path}`, err)
       return null
     }
-  }
-
-  public async clearCache(locale?: string): Promise<boolean> {
-    const path = join(this.ctx.baseDir, 'data/test', `commands_${locale || this.locale}.json`)
-    return this.file.deleteFile(path)
   }
 
   /**
