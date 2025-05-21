@@ -2,20 +2,26 @@
   "name": "koishi-plugin-test",
   "description": "test",
   "version": "0.0.1",
+  "contributors": [
+    "Yis_Rime <yis_rime@outlook.com>"
+  ],
+  "homepage": "https://github.com/YisRime/koishi-plugin-test",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YisRime/koishi-plugin-test.git"
+  },
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
     "lib",
     "dist"
   ],
-  "license": "MIT",
-  "scripts": {},
+  "license": "AGPL-3.0-only",
   "keywords": [
     "chatbot",
     "koishi",
     "plugin"
   ],
-  "devDependencies": {},
   "peerDependencies": {
     "koishi": "^4.18.7"
   }
