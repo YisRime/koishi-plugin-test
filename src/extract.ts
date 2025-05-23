@@ -1,5 +1,7 @@
 import { Context } from 'koishi'
 import { logger } from './index'
+import { join } from 'path'
+import { File } from './utils'
 
 // 接口定义
 export interface CommandOption {
@@ -23,10 +25,53 @@ export interface CommandData {
 export class Extract {
   private ctx: Context
   private locale: string
+  private file: File
+  private commandsDir: string
 
   constructor(ctx: Context, locale?: string) {
     this.ctx = ctx
-    this.locale = locale
+    this.locale = locale || 'zh-CN'
+
+    // 设置文件存储路径
+    const dataDir = join(ctx.baseDir, 'data/test')
+    this.file = new File(dataDir)
+    this.commandsDir = join(dataDir, 'commands')
+  }
+
+  /**
+   * 获取命令数据文件路径
+   */
+  private getCommandsFilePath(locale?: string): string {
+    return join(this.commandsDir, `commands_${locale || this.locale}.json`)
+  }
+
+  /**
+   * 文件操作方法
+   */
+  public async saveCommandsData(commands: CommandData[], locale?: string): Promise<boolean> {
+    if (!commands?.length) {
+      logger.warn(`保存的命令数据为空: ${locale || this.locale}`)
+      return false
+    }
+
+    const path = this.getCommandsFilePath(locale)
+    // 确保命令目录存在
+    await this.file.ensureDir(path)
+    return this.file.writeFile(path, JSON.stringify(commands, null, 2))
+  }
+
+  public async loadCommandsData(locale?: string): Promise<CommandData[]|null> {
+    const path = this.getCommandsFilePath(locale)
+    const data = await this.file.readFile(path)
+    if (!data) return null
+
+    try {
+      const parsed = JSON.parse(data)
+      return Array.isArray(parsed) ? parsed : null
+    } catch (err) {
+      logger.error(`解析命令数据失败: ${path}`, err)
+      return null
+    }
   }
 
   /**

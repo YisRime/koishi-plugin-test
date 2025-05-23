@@ -6,7 +6,7 @@ import { logger } from './index'
  * 文件操作类
  */
 export class File {
-  private basePath: string
+  public basePath: string
 
   constructor(baseDir: string) {
     this.basePath = resolve(baseDir)

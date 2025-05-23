@@ -1,218 +1,239 @@
 import { CommandData } from './extract'
-import { GridItem, ContentConfig, MenuCommandData, MenuConfig } from './render'
+import { GridItem, ContentConfig } from './render'
 import { logger } from './index'
 import { join } from 'path'
 import { File } from './utils'
-import { Extract } from './extract'
+
+/**
+ * 布局项接口 - 使用嵌套结构
+ */
+export interface LayoutItem {
+  name: string;
+  row: number;
+  col: number;
+  rowSpan?: number;
+  colSpan?: number;
+  subItems?: LayoutItem[]; // 子命令项
+  options?: LayoutItem[]; // 选项项
+}
+
+/**
+ * 布局配置接口
+ */
+export interface LayoutConfig {
+  items: LayoutItem[];
+  layout: {
+    rows: number;
+    cols: number;
+  };
+}
 
 /**
  * 命令转换器类 - 处理配置转换和管理
  */
 export class Converter {
-  private configDir: string;
   private fileManager: File;
+  private layoutPath: string;
 
   constructor(baseDir: string) {
     const dataDir = join(baseDir, 'data/test');
-    this.configDir = join(dataDir, 'config');
     this.fileManager = new File(dataDir);
-
-    // 确保目录存在
-    this.fileManager.ensureDir(this.configDir).catch(err => {
-      logger.error('创建配置目录失败', err);
-    });
+    this.layoutPath = join(this.fileManager.basePath, 'menu_layout.json');
   }
 
   /**
-   * 获取菜单配置文件路径
+   * 保存布局数据
    */
-  private getConfigPath(locale: string): string {
-    return join(this.configDir, `menu_${locale}.json`);
+  public async saveLayoutData(layoutConfig: LayoutConfig): Promise<boolean> {
+    await this.fileManager.ensureDir(this.layoutPath);
+    return await this.fileManager.writeFile(
+      this.layoutPath,
+      JSON.stringify(layoutConfig, null, 2)
+    );
   }
 
   /**
-   * 获取菜单内容配置
+   * 加载布局数据
    */
-  public async getMenuContent(
-    command: string = null,
-    locale: string,
-    extractor: Extract,
-    headerLogo?: string
-  ): Promise<ContentConfig> {
+  public async loadLayoutData(): Promise<LayoutConfig|null> {
+    const content = await this.fileManager.readFile(this.layoutPath);
+    if (!content) return null;
+
     try {
-      // 获取或创建菜单数据
-      const menuData = await this.getOrCreateMenuData(locale, extractor);
-      if (!menuData) return null;
-
-      // 根据命令参数返回不同配置
-      if (!command) {
-        return this.createMainMenuContent(menuData, headerLogo);
-      } else {
-        const cmdData = this.findCommandByName(command, menuData.commands);
-        return cmdData ? this.createCommandDetailContent(cmdData, headerLogo) : null;
-      }
-    } catch (err) {
-      logger.error(`获取菜单配置失败: ${command || '主菜单'}`, err);
+      return JSON.parse(content);
+    } catch (e) {
+      logger.warn(`读取布局配置失败: ${this.layoutPath}`);
       return null;
     }
   }
 
   /**
-   * 获取或创建菜单数据
+   * 从命令数据生成布局配置
    */
-  private async getOrCreateMenuData(locale: string, extractor: Extract): Promise<MenuConfig> {
-    const configPath = this.getConfigPath(locale);
+  public async createAndSaveLayoutData(commands: CommandData[]): Promise<LayoutConfig> {
+    if (!commands?.length) throw new Error('未找到可用的命令数据');
 
-    // 尝试读取现有配置
-    try {
-      const content = await this.fileManager.readFile(configPath);
-      if (content) return JSON.parse(content);
-    } catch (e) {
-      logger.warn(`读取菜单配置失败: ${configPath}`);
-    }
+    // 按根命令分组
+    const rootGroups = this.groupCommandsByRoot(commands);
+    const layoutItems: LayoutItem[] = [];
 
-    // 创建新配置
-    return this.extractAndSaveMenuData(locale, extractor);
-  }
+    // 添加标题项
+    layoutItems.push({
+      name: 'menu-title',
+      row: 0,
+      col: 1,
+      colSpan: 2
+    });
 
-  /**
-   * 提取并保存菜单数据
-   */
-  public async extractAndSaveMenuData(
-    locale: string,
-    extractor: Extract
-  ): Promise<MenuConfig> {
-    // 提取命令数据
-    const commands = await extractor.getProcessedCommands(locale);
-    if (!commands?.length) throw new Error('未找到可用的命令');
+    // 为每个根命令创建布局项
+    Object.entries(rootGroups).forEach(([root, cmds], index) => {
+      const row = Math.floor(index / 2) + 1;
+      const col = (index % 2) + 1;
 
-    // 处理命令数据
-    const menuCommands = this.processCommands(commands);
+      // 创建根命令项
+      const rootItem: LayoutItem = {
+        name: root,
+        row,
+        col,
+        subItems: [],
+        options: []
+      };
 
-    // 创建配置
-    const menuConfig: MenuConfig = {
-      commands: menuCommands,
+      // 处理子命令和选项
+      this.processCommandsForLayout(cmds, root, rootItem);
+      layoutItems.push(rootItem);
+    });
+
+    // 创建布局配置
+    const layoutConfig: LayoutConfig = {
+      items: layoutItems,
       layout: {
-        rows: Math.ceil(this.getUniqueRootCommands(menuCommands).length / 2) + 1,
+        rows: Math.ceil(Object.keys(rootGroups).length / 2) + 1,
         cols: 2
       }
     };
 
     // 保存配置
-    await this.saveMenuData(menuConfig, locale);
-    return menuConfig;
+    await this.saveLayoutData(layoutConfig);
+    return layoutConfig;
   }
 
   /**
-   * 处理命令数据，添加布局信息
+   * 处理命令布局数据
    */
-  private processCommands(commands: CommandData[]): MenuCommandData[] {
-    // 按根命令名分组
-    const rootGroups = this.groupByRoot(commands);
-    const result: MenuCommandData[] = [];
+  private processCommandsForLayout(cmds: CommandData[], rootName: string, rootItem: LayoutItem): void {
+    cmds.forEach(cmd => {
+      // 处理非根命令(子命令)
+      if (cmd.name !== rootName && cmd.name.startsWith(`${rootName}.`)) {
+        const subItem: LayoutItem = {
+          name: cmd.name,
+          row: 0,  // 相对位置
+          col: 0
+        };
 
-    // 为每组命令添加位置信息
-    Object.entries(rootGroups).forEach(([root, cmds], index) => {
-      const row = Math.floor(index / 2) + 1;
-      const col = (index % 2) + 1;
+        // 处理子命令的选项
+        if (cmd.options?.length) {
+          subItem.options = cmd.options.map(opt => ({
+            name: `${cmd.name}.option.${opt.name}`,
+            row: 0,
+            col: 0
+          }));
+        }
 
-      // 处理组内每个命令
-      cmds.forEach(cmd => {
-        // 转换为菜单命令数据
-        result.push({
-          ...cmd,
-          row,
-          col,
-          subCommands: cmd.subCommands?.map(sub => ({
-            ...sub,
-            row,
-            col
-          })) as MenuCommandData[]
-        });
-      });
+        rootItem.subItems.push(subItem);
+      }
+      // 处理根命令的选项
+      else if (cmd.name === rootName && cmd.options?.length) {
+        rootItem.options = cmd.options.map(opt => ({
+          name: `${cmd.name}.option.${opt.name}`,
+          row: 0,
+          col: 0
+        }));
+      }
     });
-
-    return result;
   }
 
   /**
-   * 按根命令名分组
+   * 根据布局和命令数据生成内容配置
    */
-  private groupByRoot(commands: CommandData[]): Record<string, CommandData[]> {
-    const groups: Record<string, CommandData[]> = {};
+  public async createContentConfig(
+    command: string = null,
+    commandsData: CommandData[],
+    layoutData: LayoutConfig,
+    headerLogo?: string
+  ): Promise<ContentConfig> {
+    try {
+      if (!commandsData?.length || !layoutData) return null;
 
-    commands.forEach(cmd => {
-      const root = cmd.name.split('.')[0];
-      if (!groups[root]) groups[root] = [];
-      groups[root].push(cmd);
-    });
-
-    return groups;
-  }
-
-  /**
-   * 获取唯一的根命令
-   */
-  private getUniqueRootCommands(commands: MenuCommandData[]): string[] {
-    return Array.from(new Set(commands.map(cmd => cmd.name.split('.')[0])));
-  }
-
-  /**
-   * 保存菜单数据
-   */
-  private async saveMenuData(data: MenuConfig, locale: string): Promise<void> {
-    const configPath = this.getConfigPath(locale);
-    await this.fileManager.ensureDir(configPath);
-    await this.fileManager.writeFile(configPath, JSON.stringify(data, null, 2));
-    logger.info(`已保存菜单配置: ${locale}`);
+      // 根据命令参数返回不同配置
+      if (!command) {
+        return this.createMainMenuContent(commandsData, layoutData, headerLogo);
+      } else {
+        const cmdData = this.findCommandByName(command, commandsData);
+        return cmdData ? this.createCommandDetailContent(cmdData, headerLogo) : null;
+      }
+    } catch (err) {
+      logger.error(`生成内容配置失败: ${command || '主菜单'}`, err);
+      return null;
+    }
   }
 
   /**
    * 创建主菜单内容配置
    */
-  private createMainMenuContent(menuData: MenuConfig, headerLogo?: string): ContentConfig {
+  private createMainMenuContent(
+    commands: CommandData[],
+    layoutData: LayoutConfig,
+    headerLogo?: string
+  ): ContentConfig {
     // 根据命令根名称分组
-    const rootGroups = this.groupByRoot(menuData.commands);
+    const rootGroups = this.groupCommandsByRoot(commands);
+    const gridItems: GridItem[] = [];
 
-    // 创建网格项，首先是标题项
-    const gridItems: GridItem[] = [{
-      row: 1,
-      col: 1,
-      colSpan: 2,
-      type: 'text',
-      title: '命令菜单',
-      content: '点击命令查看详细信息',
-      icon: 'menu_book',
-      iconType: 'material',
-      id: 'menu-title'
-    }];
+    // 添加标题项
+    const titleItem = layoutData.items.find(item => item.name === 'menu-title');
+    if (titleItem) {
+      gridItems.push({
+        row: titleItem.row + 1,
+        col: titleItem.col,
+        colSpan: titleItem.colSpan,
+        type: 'text',
+        title: '命令菜单',
+        content: '点击命令查看详细信息',
+        icon: 'menu_book',
+        iconType: 'material',
+        id: 'menu-title',
+        itemType: 'title'
+      });
+    }
 
-    // 为每个根命令创建一个网格项
-    Object.entries(rootGroups).forEach(([root, cmds], index) => {
-      const row = Math.floor(index / 2) + 2; // 从第2行开始
-      const col = (index % 2) + 1;           // 1或2列
+    // 为每个根命令创建网格项
+    Object.entries(rootGroups).forEach(([root, cmds]) => {
+      const layoutItem = layoutData.items.find(item => item.name === root);
+      if (!layoutItem) return;
 
-      // 格式化命令列表
+      // 计算子命令和选项数量
+      const subCmdCount = cmds.reduce((sum, cmd) => sum + (cmd.subCommands?.length || 0), 0);
+      const optionsCount = cmds.reduce((sum, cmd) => sum + (cmd.options?.length || 0), 0);
+
+      // 构建命令内容
       const content = cmds.map(cmd =>
         `${cmd.name}${cmd.description ? ` - ${cmd.description}` : ''}`
       ).join('\n');
 
-      // 计算子命令数
-      const subCmdCount = cmds.reduce((sum, cmd) =>
-        sum + (cmd.subCommands?.length || 0), 0);
-
-      // 添加网格项 - 移除contentStyle
-      gridItems.push({
-        row,
-        col,
-        type: 'text',
+      // 添加网格项
+      gridItems.push(this.createGridItem({
+        row: layoutItem.row + 1,
+        col: layoutItem.col,
+        rowSpan: layoutItem.rowSpan,
+        colSpan: layoutItem.colSpan,
         title: root,
         content,
-        badge: subCmdCount > 0 ? `${cmds.length}+${subCmdCount}` : `${cmds.length}`,
+        badge: this.formatBadge(cmds.length, subCmdCount, optionsCount),
         icon: 'terminal',
-        iconType: 'material',
-        id: `cmd-${root}`
-      });
+        id: `cmd-${root}`,
+        itemType: 'command'
+      }));
     });
 
     // 返回内容配置
@@ -224,12 +245,11 @@ export class Converter {
       },
       footer: {
         show: true,
-        text: `共 ${menuData.commands.length} 个命令`
+        text: `共 ${commands.length} 个命令`
       },
       layout: {
-        rows: menuData.layout.rows,
+        rows: layoutData.layout.rows,
         cols: 2,
-        gap: 16,
         items: gridItems
       }
     };
@@ -238,90 +258,89 @@ export class Converter {
   /**
    * 创建命令详情内容配置
    */
-  private createCommandDetailContent(command: MenuCommandData, headerLogo?: string): ContentConfig {
-    // 预计算需要的行数
-    const hasOptions = command.options?.length > 0;
-    const hasExamples = command.examples?.length > 0;
-    const hasSubCommands = command.subCommands?.length > 0;
-    const rows = 1 + (command.usage ? 1 : 0) + (hasOptions ? 1 : 0) +
-                 (hasExamples ? 1 : 0) + (hasSubCommands ? 1 : 0);
-
-    // 创建网格项列表 - 移除所有contentStyle
+  private createCommandDetailContent(
+    command: CommandData,
+    headerLogo?: string
+  ): ContentConfig {
     const gridItems: GridItem[] = [];
     let currentRow = 1;
 
+    // 判断命令类型
+    const rootName = command.name.split('.')[0];
+    const isRoot = command.name === rootName;
+    const itemType = isRoot ? 'command' : 'subCommand';
+
     // 添加标题
-    gridItems.push({
+    gridItems.push(this.createGridItem({
       row: currentRow++,
       col: 1,
-      type: 'text',
       title: command.name,
       content: command.description || '无描述',
       icon: 'code',
-      iconType: 'material',
-      id: 'cmd-title'
-    });
+      id: 'cmd-title',
+      itemType
+    }));
 
     // 添加用法
     if (command.usage) {
-      gridItems.push({
+      gridItems.push(this.createGridItem({
         row: currentRow++,
         col: 1,
-        type: 'text',
         title: '用法',
         content: command.usage,
         icon: 'description',
-        iconType: 'material',
-        id: 'cmd-usage'
-      });
+        id: 'cmd-usage',
+        itemType
+      }));
     }
 
     // 添加选项
-    if (hasOptions) {
-      gridItems.push({
+    if (command.options?.length > 0) {
+      const optionsContent = command.options.map(opt =>
+        `${opt.name}${opt.syntax ? ' ' + opt.syntax : ''}${opt.description ? '\n  ' + opt.description : ''}`
+      ).join('\n\n');
+
+      gridItems.push(this.createGridItem({
         row: currentRow++,
         col: 1,
-        type: 'text',
         title: '选项参数',
-        content: command.options.map(opt =>
-          `${opt.name}${opt.syntax ? ' ' + opt.syntax : ''}${opt.description ? '\n  ' + opt.description : ''}`
-        ).join('\n\n'),
+        content: optionsContent,
         icon: 'tune',
-        iconType: 'material',
         badge: command.options.length,
-        id: 'cmd-options'
-      });
+        id: 'cmd-options',
+        itemType: 'option'
+      }));
     }
 
     // 添加示例
-    if (hasExamples) {
-      gridItems.push({
+    if (command.examples?.length > 0) {
+      gridItems.push(this.createGridItem({
         row: currentRow++,
         col: 1,
-        type: 'text',
         title: '示例',
         content: command.examples.join('\n'),
         icon: 'integration_instructions',
-        iconType: 'material',
-        id: 'cmd-examples'
-      });
+        id: 'cmd-examples',
+        itemType
+      }));
     }
 
     // 添加子命令
-    if (hasSubCommands) {
-      gridItems.push({
+    if (command.subCommands?.length > 0) {
+      const subContent = command.subCommands.map(sub =>
+        `${sub.name}${sub.description ? ` - ${sub.description}` : ''}`
+      ).join('\n');
+
+      gridItems.push(this.createGridItem({
         row: currentRow++,
         col: 1,
-        type: 'text',
         title: '子命令',
-        content: command.subCommands.map(sub =>
-          `${sub.name}${sub.description ? ` - ${sub.description}` : ''}`
-        ).join('\n'),
+        content: subContent,
         icon: 'account_tree',
-        iconType: 'material',
         badge: command.subCommands.length,
-        id: 'cmd-subcommands'
-      });
+        id: 'cmd-subcommands',
+        itemType: 'subCommand'
+      }));
     }
 
     // 返回内容配置
@@ -336,18 +355,74 @@ export class Converter {
         text: 'Powered by Koishi'
       },
       layout: {
-        rows,
+        rows: currentRow - 1,
         cols: 1,
-        gap: 16,
         items: gridItems
       }
     };
   }
 
   /**
+   * 创建网格项 - 辅助函数
+   */
+  private createGridItem(options: {
+    row: number;
+    col: number;
+    rowSpan?: number;
+    colSpan?: number;
+    title?: string;
+    content: string;
+    icon?: string;
+    badge?: string | number;
+    id?: string;
+    itemType?: "title" | "command" | "subCommand" | "option" | "header";
+  }): GridItem {
+    return {
+      row: options.row,
+      col: options.col,
+      rowSpan: options.rowSpan,
+      colSpan: options.colSpan,
+      type: 'text',
+      title: options.title,
+      content: options.content,
+      icon: options.icon,
+      iconType: options.icon ? 'material' : undefined,
+      badge: options.badge,
+      id: options.id,
+      itemType: options.itemType
+    };
+  }
+
+  /**
+   * 格式化徽章显示
+   */
+  private formatBadge(cmdCount: number, subCmdCount: number, optionsCount: number): string {
+    if (subCmdCount > 0 && optionsCount > 0) {
+      return `${cmdCount}+${subCmdCount}+${optionsCount}`;
+    } else if (subCmdCount > 0) {
+      return `${cmdCount}+${subCmdCount}`;
+    } else if (optionsCount > 0) {
+      return `${cmdCount}+${optionsCount}`;
+    }
+    return String(cmdCount);
+  }
+
+  /**
+   * 按根命令名分组
+   */
+  private groupCommandsByRoot(commands: CommandData[]): Record<string, CommandData[]> {
+    return commands.reduce((groups, cmd) => {
+      const root = cmd.name.split('.')[0];
+      if (!groups[root]) groups[root] = [];
+      groups[root].push(cmd);
+      return groups;
+    }, {} as Record<string, CommandData[]>);
+  }
+
+  /**
    * 在命令数组中查找指定命令
    */
-  private findCommandByName(name: string, commands: MenuCommandData[]): MenuCommandData | null {
+  private findCommandByName(name: string, commands: CommandData[]): CommandData | null {
     // 直接查找
     const found = commands.find(cmd => cmd.name === name);
     if (found) return found;
