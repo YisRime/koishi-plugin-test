@@ -66,14 +66,13 @@ export class Converter {
     const items: GridItem[] = [];
     const cols = 2;
 
-    // 添加标题
+    // 添加标题 - 移除 menu_book 图标
     items.push({
       row: 1, col: 1, colSpan: 2,
       type: 'text',
       title: '命令菜单',
       content: '点击命令查看详细信息',
-      icon: 'menu_book',
-      iconType: 'material',
+      // 删除 icon: 'menu_book'
       id: 'menu-title',
       itemType: 'title'
     });
@@ -102,8 +101,7 @@ export class Converter {
         content: groupCmds.map(cmd =>
           `${cmd.name}${cmd.description ? ` - ${cmd.description}` : ''}`
         ).join('\n'),
-        icon: 'terminal',
-        iconType: 'material',
+        // 删除 icon: 'terminal'
         badge,
         id: `cmd-${root}`,
         itemType: 'command'

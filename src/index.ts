@@ -19,7 +19,6 @@ export interface Config {
   fontFamily?: string
   fontSize?: number
   textColor?: string
-
   // 网格项样式
   itemStyle?: {
     radius?: number
@@ -29,7 +28,6 @@ export interface Config {
     shadow?: string
     spacing?: number
   }
-
   // 内容样式
   textStyle?: {
     titleSize?: number
@@ -39,7 +37,6 @@ export interface Config {
     lineHeight?: number
     whiteSpace?: string
   }
-
   // 图标和徽章
   iconStyle?: {
     size?: number
@@ -47,7 +44,6 @@ export interface Config {
     badgeColor?: string
     badgeSize?: number
   }
-
   // 页眉和页脚
   header?: {
     show?: boolean
@@ -56,14 +52,12 @@ export interface Config {
     background?: string
     color?: string
   }
-
   footer?: {
     show?: boolean
     text?: string
     background?: string
     color?: string
   }
-
   // 特殊项样式
   specialStyles?: {
     subCommand?: {
@@ -84,14 +78,13 @@ export interface Config {
  */
 export const Config: Schema<Config> = Schema.intersect([
   Schema.object({
-    width: Schema.number().default(800).description('总宽度'),
+    width: Schema.number().default(600).description('总宽度'),
     background: Schema.string().default('#ffffff').description('背景颜色'),
     accentColor: Schema.string().default('#6750a4').description('主题色'),
     fontFamily: Schema.string().default("'Roboto', 'Noto Sans SC', sans-serif").description('字体'),
     fontSize: Schema.number().default(14).description('基础字体大小'),
     textColor: Schema.string().default('#1c1b1f').description('文字颜色'),
   }).description('基础设置'),
-
   Schema.object({
     itemStyle: Schema.object({
       radius: Schema.number().default(12).description('圆角'),
@@ -102,7 +95,6 @@ export const Config: Schema<Config> = Schema.intersect([
       spacing: Schema.number().default(10).description('间距'),
     }).description('项目样式设置'),
   }).description('布局样式'),
-
   Schema.object({
     textStyle: Schema.object({
       titleSize: Schema.number().default(1.1).description('标题大小'),
@@ -113,7 +105,6 @@ export const Config: Schema<Config> = Schema.intersect([
       whiteSpace: Schema.string().default('pre-wrap').description('文本换行方式'),
     }).description('文本样式设置'),
   }).description('文本样式'),
-
   Schema.object({
     iconStyle: Schema.object({
       size: Schema.number().default(20).description('图标大小'),
@@ -122,7 +113,6 @@ export const Config: Schema<Config> = Schema.intersect([
       badgeSize: Schema.number().default(0.75).description('徽章字号'),
     }).description('图标样式设置'),
   }).description('图标样式'),
-
   Schema.object({
     header: Schema.object({
       show: Schema.boolean().default(true).description('是否显示'),
@@ -132,7 +122,6 @@ export const Config: Schema<Config> = Schema.intersect([
       color: Schema.string().default('#311b92').description('文字颜色'),
     }).description('页眉设置'),
   }).description('页眉设置'),
-
   Schema.object({
     footer: Schema.object({
       show: Schema.boolean().default(true).description('是否显示'),
@@ -141,7 +130,6 @@ export const Config: Schema<Config> = Schema.intersect([
       color: Schema.string().default('#616161').description('文字颜色'),
     }).description('页脚设置'),
   }).description('页脚设置'),
-
   Schema.object({
     specialStyles: Schema.object({
       subCommand: Schema.object({
@@ -168,24 +156,19 @@ export function apply(ctx: Context, config: Config) {
   const converter = new Converter(ctx.baseDir, config)
   const renderer = new Renderer(ctx, config)
 
-  // 直接在命令action中处理
   ctx.command('menu [command:string]', '显示命令菜单')
     .action(async ({ session }, command) => {
       try {
         const locale = extractor.getUserLocale(session)
-        logger.info(`处理菜单请求: ${command || '主菜单'} (${locale})`)
-
         // 获取命令数据
         let commands = await extractor.loadCommandsData(locale)
         if (!commands) {
           commands = await extractor.getProcessedCommands(locale)
           await extractor.saveCommandsData(commands, locale)
         }
-
         // 生成和渲染
         const content = await converter.createContentConfig(command, commands)
         if (!content) return `找不到命令: ${command || '主菜单'}`
-
         const image = await renderer.render(content)
         return h.image(image, 'image/png')
       } catch (err) {
@@ -198,7 +181,6 @@ export function apply(ctx: Context, config: Config) {
     .option('extract', '-e 提取并更新命令菜单', { fallback: false })
     .action(async ({ session, options }) => {
       if (!options.extract) return '请使用 -e 选项提取并更新菜单'
-
       try {
         const locale = extractor.getUserLocale(session)
         const commands = await extractor.getProcessedCommands(locale)
