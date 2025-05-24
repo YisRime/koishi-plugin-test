@@ -160,35 +160,32 @@ export function apply(ctx: Context, config: Config) {
     .action(async ({ session }, command) => {
       try {
         const locale = extractor.getUserLocale(session)
+
         // 获取命令数据
         let commands = await extractor.loadCommandsData(locale)
         if (!commands) {
           commands = await extractor.getProcessedCommands(locale)
           await extractor.saveCommandsData(commands, locale)
         }
-        // 生成和渲染
-        const content = await converter.createContentConfig(command, commands)
-        if (!content) return `找不到命令: ${command || '主菜单'}`
-        const image = await renderer.render(content)
+
+        // 命令键名
+        const cmdKey = command || 'main'
+
+        // 获取布局数据
+        let layout = await converter.loadLayoutConfig(cmdKey)
+        if (!layout) {
+          layout = await converter.generateLayout(command, commands)
+          await converter.saveLayoutConfig(cmdKey, layout)
+        }
+
+        if (!layout) return `找不到命令: ${command || '主菜单'}`
+
+        // 渲染图片
+        const image = await renderer.render(layout)
         return h.image(image, 'image/png')
       } catch (err) {
         logger.error('菜单渲染失败', err)
         return `菜单生成失败: ${err.message}`
-      }
-    })
-
-  ctx.command('menu.manage', '管理命令菜单配置')
-    .option('extract', '-e 提取并更新命令菜单', { fallback: false })
-    .action(async ({ session, options }) => {
-      if (!options.extract) return '请使用 -e 选项提取并更新菜单'
-      try {
-        const locale = extractor.getUserLocale(session)
-        const commands = await extractor.getProcessedCommands(locale)
-        await extractor.saveCommandsData(commands, locale)
-        return '✅ 已更新菜单配置'
-      } catch (err) {
-        logger.error('更新菜单失败', err)
-        return `❌ 更新菜单失败: ${err.message}`
       }
     })
 }
