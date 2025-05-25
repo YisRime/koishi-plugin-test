@@ -1,27 +1,19 @@
 import { logger } from './index'
-import { LayoutConfig } from './content'
-import { FileManager } from './utils'
 
 export interface ThemeConfig {
+  themePreset: 'light' | 'dark' | 'glass' | 'custom'
   width?: number
   backgroundImage?: string
-  backgroundOverlay?: string
-  style?: 'light' | 'dark' | 'glass'
-  roundness?: 'none' | 'small' | 'medium' | 'large'
-  headerShow?: boolean
-  headerLogo?: string
-  footerShow?: boolean
+  roundness?: number
+  headerText?: string
   footerText?: string
-  customColors?: {
-    primary?: string
-    background?: string
-    text?: string
-  }
+  primaryColor?: string
+  backgroundColor?: string
+  textColor?: string
 }
 
 interface ThemeStyle {
   name: string
-  description: string
   colors: Record<string, string>
   typography: {
     fontFamily: string
@@ -42,70 +34,100 @@ interface ThemeStyle {
   }
 }
 
+export interface ComputedTheme extends ThemeStyle {
+  width: number
+  backgroundImage: string
+  borderRadius: string
+  header: {
+    show: boolean
+    text: string
+  }
+  footer: {
+    show: boolean
+    text: string
+  }
+}
+
 /**
  * 主题管理器 - 处理主题样式和渲染
  */
 export class ThemeManager {
   private readonly presetStyles: Record<string, ThemeStyle>
-  private fileManager?: FileManager
+  private readonly commonConfig = {
+    typography: {
+      fontFamily: "'Inter', 'SF Pro Display', 'Noto Sans SC', system-ui, sans-serif",
+      fontSize: 16,
+      titleSize: 1.25,
+      titleWeight: '600',
+      lineHeight: 1.5
+    },
+    effects: {
+      hoverTransform: 'translateY(-2px)',
+      borderStyle: '1px solid'
+    }
+  }
 
-  constructor(baseDir?: string) {
+  constructor() {
     this.presetStyles = this.initializePresetStyles()
-    if (baseDir) this.fileManager = new FileManager(baseDir)
   }
 
   /**
    * 初始化预设样式
    */
   private initializePresetStyles(): Record<string, ThemeStyle> {
-    const createStyle = (name: string, description: string, colors: Record<string, string>,
-                        typography: any, spacing: any, effects: any): ThemeStyle => ({
-      name, description, colors, typography, spacing, effects
-    })
-
     return {
-      light: createStyle('浅色主题', '简洁明亮的浅色设计', {
-        primary: '#2563eb', secondary: '#64748b', accent: '#0ea5e9',
-        background: '#ffffff', surface: '#f8fafc', text: '#1e293b',
-        textSecondary: '#64748b', border: 'rgba(148, 163, 184, 0.2)', shadow: 'rgba(0, 0, 0, 0.08)'
-      }, {
-        fontFamily: "'Inter', 'SF Pro Display', 'Noto Sans SC', system-ui, sans-serif",
-        fontSize: 16, titleSize: 1.25, titleWeight: '600', lineHeight: 1.5
-      }, {
-        itemPadding: '16px', itemSpacing: 12, containerPadding: '20px'
-      }, {
-        shadow: '0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04)',
-        hoverTransform: 'translateY(-2px)', borderStyle: '1px solid'
-      }),
+      light: {
+        name: '浅色主题',
+        colors: {
+          primary: '#2563eb', secondary: '#64748b', accent: '#0ea5e9',
+          background: '#ffffff', surface: '#f8fafc', text: '#1e293b',
+          textSecondary: '#64748b', border: 'rgba(148, 163, 184, 0.2)', shadow: 'rgba(0, 0, 0, 0.08)'
+        },
+        typography: this.commonConfig.typography,
+        spacing: {
+          itemPadding: '16px', itemSpacing: 12, containerPadding: '20px'
+        },
+        effects: {
+          ...this.commonConfig.effects,
+          shadow: '0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04)'
+        }
+      },
 
-      dark: createStyle('深色主题', '纯黑护眼的深色设计', {
-        primary: '#ffffff', secondary: '#666666', accent: '#888888',
-        background: '#000000', surface: '#111111', text: '#ffffff',
-        textSecondary: '#888888', border: 'rgba(255, 255, 255, 0.1)', shadow: 'rgba(0, 0, 0, 0.8)'
-      }, {
-        fontFamily: "'Inter', 'SF Pro Display', 'Noto Sans SC', system-ui, sans-serif",
-        fontSize: 16, titleSize: 1.25, titleWeight: '600', lineHeight: 1.5
-      }, {
-        itemPadding: '16px', itemSpacing: 12, containerPadding: '20px'
-      }, {
-        shadow: '0 4px 12px rgba(0, 0, 0, 0.8), 0 2px 6px rgba(0, 0, 0, 0.4)',
-        hoverTransform: 'translateY(-2px)', borderStyle: '1px solid'
-      }),
+      dark: {
+        name: '深色主题',
+        colors: {
+          primary: '#ffffff', secondary: '#666666', accent: '#888888',
+          background: '#000000', surface: '#111111', text: '#ffffff',
+          textSecondary: '#888888', border: 'rgba(255, 255, 255, 0.1)', shadow: 'rgba(0, 0, 0, 0.8)'
+        },
+        typography: this.commonConfig.typography,
+        spacing: {
+          itemPadding: '16px', itemSpacing: 12, containerPadding: '20px'
+        },
+        effects: {
+          ...this.commonConfig.effects,
+          shadow: '0 4px 12px rgba(0, 0, 0, 0.8), 0 2px 6px rgba(0, 0, 0, 0.4)'
+        }
+      },
 
-      glass: createStyle('毛玻璃风格', '现代毛玻璃效果', {
-        primary: '#a855f7', secondary: '#06b6d4', accent: '#f59e0b',
-        background: 'rgba(15, 23, 42, 0.8)', surface: 'rgba(30, 41, 59, 0.6)',
-        text: '#f1f5f9', textSecondary: 'rgba(241, 245, 249, 0.8)',
-        border: 'rgba(148, 163, 184, 0.3)', shadow: 'rgba(0, 0, 0, 0.4)'
-      }, {
-        fontFamily: "'Inter', 'SF Pro Display', 'Noto Sans SC', system-ui, sans-serif",
-        fontSize: 16, titleSize: 1.25, titleWeight: '600', lineHeight: 1.5
-      }, {
-        itemPadding: '18px', itemSpacing: 14, containerPadding: '22px'
-      }, {
-        shadow: '0 8px 32px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.2)',
-        hoverTransform: 'translateY(-3px)', borderStyle: '1px solid'
-      })
+      glass: {
+        name: '毛玻璃风格',
+        colors: {
+          primary: '#a855f7', secondary: '#06b6d4', accent: '#f59e0b',
+          background: 'rgba(15, 23, 42, 0.8)', surface: 'rgba(30, 41, 59, 0.6)',
+          text: '#f1f5f9', textSecondary: 'rgba(241, 245, 249, 0.8)',
+          border: 'rgba(148, 163, 184, 0.3)', shadow: 'rgba(0, 0, 0, 0.4)'
+        },
+        typography: this.commonConfig.typography,
+        spacing: {
+          itemPadding: '18px', itemSpacing: 14, containerPadding: '22px'
+        },
+        effects: {
+          shadow: '0 8px 32px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.2)',
+          hoverTransform: 'translateY(-3px)',
+          borderStyle: '1px solid'
+        }
+      }
     }
   }
 
@@ -113,82 +135,56 @@ export class ThemeManager {
    * 获取计算后的主题配置
    * @param config 主题配置
    */
-  getComputedTheme(config: ThemeConfig): any {
-    const style = this.presetStyles[config.style || 'light']
-    const roundnessMap = { none: '0px', small: '8px', medium: '12px', large: '16px' }
+  getComputedTheme(config: ThemeConfig): ComputedTheme {
+    const preset = config.themePreset || 'light'
 
+    // 获取预设样式作为基础
+    const baseStyle = this.presetStyles[preset === 'custom' ? 'light' : preset]
+
+    logger.debug(`使用主题: ${preset}`)
+
+    // 构建自定义颜色，用户配置覆盖预设
+    const customColors: Record<string, string> = { ...baseStyle.colors }
+    if (config.primaryColor) customColors.primary = config.primaryColor
+    if (config.backgroundColor) customColors.background = config.backgroundColor
+    if (config.textColor) customColors.text = config.textColor
+
+    // 处理显示配置
+    const header = {
+      show: !!(config.headerText?.trim()),
+      text: config.headerText?.trim() || ''
+    }
+
+    const footer = {
+      show: !!(config.footerText?.trim()),
+      text: config.footerText?.trim() || ''
+    }
+
+    // 处理圆角
+    const borderRadius = config.roundness !== undefined ? `${config.roundness}px` : '12px'
+
+    // 所有主题都支持配置覆盖
     return {
-      ...style,
-      width: config.width || 480,
-      backgroundImage: config.backgroundImage || '',
-      backgroundOverlay: config.backgroundOverlay || '',
-      borderRadius: roundnessMap[config.roundness || 'medium'],
-      headerShow: config.headerShow ?? true,
-      headerLogo: config.headerLogo || '',
-      footerShow: config.footerShow ?? true,
-      footerText: config.footerText || 'Powered by Koishi',
-      colors: {
-        ...style.colors,
-        ...config.customColors
-      }
+      ...baseStyle,
+      width: config.width ?? 480,
+      backgroundImage: config.backgroundImage ?? '',
+      borderRadius,
+      header,
+      footer,
+      colors: customColors
     }
   }
 
   /**
-   * 加载主题配置
-   * @param themeName 主题名称
-   */
-  async loadTheme(themeName: string): Promise<ThemeConfig> {
-    const defaultTheme: ThemeConfig = {
-      width: 480, style: (themeName as any) || 'light', roundness: 'medium',
-      headerShow: true, footerShow: true, footerText: 'Powered by Koishi'
-    }
-
-    // 如果没有文件管理器，直接返回默认配置
-    if (!this.fileManager) {
-      logger.debug(`使用默认主题配置: ${themeName}`)
-      return defaultTheme
-    }
-
-    // 如果是预设主题名称，优先使用预设配置而不创建文件
-    if (this.presetStyles[themeName]) {
-      logger.debug(`使用预设主题: ${themeName}`)
-      return {
-        ...defaultTheme,
-        style: themeName as any
-      }
-    }
-
-    // 对于自定义主题，确保文件存在
-    await this.fileManager.ensureThemeExists(themeName)
-
-    const customTheme = await this.fileManager.load<ThemeConfig>('theme', themeName)
-    if (customTheme) {
-      logger.debug(`加载自定义主题: ${themeName}`)
-      return customTheme
-    }
-
-    logger.debug(`使用默认主题配置: ${themeName}`)
-    return defaultTheme
-  }
-
-  /**
-   * 生成CSS样式
+   * 生成默认CSS模板
    * @param theme 主题对象
-   * @param layoutConfig 布局配置
    */
-  generateCssStyles(theme: any, layoutConfig: LayoutConfig): string {
+  generateDefaultCssTemplate(theme: ComputedTheme): string {
     const backgroundStyles = theme.backgroundImage ?
       `background-image: url('${theme.backgroundImage}'); background-size: cover; background-position: center; background-repeat: no-repeat;` :
       `background: ${theme.colors.background};`
 
-    const overlayStyles = theme.backgroundImage && theme.backgroundOverlay ? `
-      .container::before {
-        content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-        background: ${theme.backgroundOverlay}; border-radius: ${theme.borderRadius}; pointer-events: none;
-      }` : ''
-
-    const glassEffect = theme.style?.name === '毛玻璃风格' ? `
+    const glassEffect = theme.name === '毛玻璃风格' ? `
       .container { backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
       .grid-item, .header, .footer { backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
     ` : ''
@@ -205,7 +201,6 @@ export class ThemeManager {
       .container { width: ${theme.width}px; padding: ${theme.spacing.containerPadding}; position: relative;
                   border-radius: ${theme.borderRadius}; background: ${theme.colors.surface};
                   box-shadow: ${theme.effects.shadow}; }
-      ${overlayStyles}
       ${glassEffect}
 
       .header, .footer { border-radius: ${theme.borderRadius}; margin-bottom: ${theme.spacing.itemSpacing}px;
@@ -213,12 +208,11 @@ export class ThemeManager {
 
       .header { background: ${theme.colors.surface}; color: ${theme.colors.text}; padding: ${theme.spacing.itemPadding};
                border: ${theme.effects.borderStyle} ${theme.colors.border}; box-shadow: ${theme.effects.shadow};
-               background: linear-gradient(135deg, ${theme.colors.surface}, ${theme.colors.background}); }
-
-      .header-logo { height: 28px; margin-right: 12px; border-radius: 6px; }
+               background: linear-gradient(135deg, ${theme.colors.surface}, ${theme.colors.background});
+               text-align: center; justify-content: center; font-weight: 600; }
 
       .grid-container { display: grid; width: 100%; gap: ${theme.spacing.itemSpacing}px; position: relative; z-index: 1;
-                       grid-template-rows: repeat(${layoutConfig.rows}, auto); grid-template-columns: repeat(${layoutConfig.cols}, 1fr); }
+                       grid-template-rows: repeat(var(--grid-rows), auto); grid-template-columns: repeat(var(--grid-cols), 1fr); }
 
       .grid-item { background: ${theme.colors.surface}; padding: ${theme.spacing.itemPadding}; border-radius: ${theme.borderRadius};
                   border: ${theme.effects.borderStyle} ${theme.colors.border}; box-shadow: ${theme.effects.shadow};
@@ -257,5 +251,25 @@ export class ThemeManager {
       .grid-item.command { background: linear-gradient(135deg, ${theme.colors.surface}, ${theme.colors.background}); }
       .grid-item.command:hover { background: linear-gradient(135deg, ${theme.colors.primary}08, ${theme.colors.surface}); }
     `
+  }
+
+  /**
+   * 生成默认HTML模板
+   */
+  generateDefaultHtmlTemplate(): string {
+    return `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>{{CSS_CONTENT}}</style>
+</head>
+<body>
+    <div class="container" style="--grid-rows: {{GRID_ROWS}}; --grid-cols: {{GRID_COLS}};">
+        {{HEADER_CONTENT}}
+        <div class="grid-container">{{GRID_CONTENT}}</div>
+        {{FOOTER_CONTENT}}
+    </div>
+</body>
+</html>`
   }
 }

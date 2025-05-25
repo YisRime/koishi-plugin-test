@@ -1,9 +1,8 @@
-import { promises as fs, existsSync } from 'fs'
-import { dirname, join } from 'path'
 import { Context } from 'koishi'
-import { logger } from './index'
 import {} from 'koishi-plugin-puppeteer'
-import { ThemeConfig, ThemeManager } from './theme'
+import { dirname, join } from 'path'
+import { promises } from 'fs'
+import { ThemeManager, ComputedTheme } from './theme'
 import { LayoutConfig, ContentProcessor } from './content'
 
 /**
@@ -12,12 +11,12 @@ import { LayoutConfig, ContentProcessor } from './content'
 export class FileManager {
   private readonly dataDirectory: string
   private readonly commandsDirectory: string
-  private readonly themesDirectory: string
+  private readonly templatesDirectory: string
 
   constructor(baseDir: string) {
     this.dataDirectory = join(baseDir, 'data/test')
     this.commandsDirectory = join(this.dataDirectory, 'commands')
-    this.themesDirectory = join(this.dataDirectory, 'themes')
+    this.templatesDirectory = join(this.dataDirectory, 'templates')
   }
 
   /**
@@ -26,7 +25,7 @@ export class FileManager {
    * @param identifier 标识符
    * @param locale 语言环境
    */
-  private getFilePath(type: 'command' | 'layout' | 'theme', identifier: string, locale?: string): string {
+  private getFilePath(type: 'command' | 'layout' | 'template', identifier: string, locale?: string): string {
     switch (type) {
       case 'command':
         if (identifier === 'commands') {
@@ -38,8 +37,9 @@ export class FileManager {
       case 'layout':
         const layoutFileName = identifier ? `layout_${identifier.replace(/\./g, '_')}.json` : 'layout_main.json'
         return join(this.dataDirectory, layoutFileName)
-      case 'theme':
-        return join(this.themesDirectory, `${identifier}.json`)
+      case 'template':
+        const extension = identifier.includes('css') ? '.css' : '.html'
+        return join(this.templatesDirectory, `${identifier}${extension}`)
     }
   }
 
@@ -50,17 +50,12 @@ export class FileManager {
    * @param data 数据
    * @param locale 语言环境
    */
-  async save<T>(type: 'command' | 'layout' | 'theme', identifier: string, data: T, locale?: string): Promise<boolean> {
+  async save<T>(type: 'command' | 'layout' | 'template', identifier: string, data: T, locale?: string): Promise<boolean> {
     const filePath = this.getFilePath(type, identifier, locale)
-    try {
-      const dir = dirname(filePath)
-      if (!existsSync(dir)) await fs.mkdir(dir, { recursive: true })
-      await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf8')
-      return true
-    } catch (err) {
-      logger.error(`保存失败: ${filePath}`, err)
-      return false
-    }
+    await promises.mkdir(dirname(filePath), { recursive: true })
+    const content = type === 'template' ? String(data) : JSON.stringify(data, null, 2)
+    await promises.writeFile(filePath, content, 'utf8')
+    return true
   }
 
   /**
@@ -69,43 +64,29 @@ export class FileManager {
    * @param identifier 标识符
    * @param locale 语言环境
    */
-  async load<T>(type: 'command' | 'layout' | 'theme', identifier: string, locale?: string): Promise<T | null> {
+  async load<T>(type: 'command' | 'layout' | 'template', identifier: string, locale?: string): Promise<T | null> {
     const filePath = this.getFilePath(type, identifier, locale)
     try {
-      if (!existsSync(filePath)) return null
-      const jsonData = await fs.readFile(filePath, 'utf8')
-      return jsonData ? JSON.parse(jsonData) as T : null
-    } catch (err) {
-      if (err.code !== 'ENOENT') logger.error(`读取失败: ${filePath}`, err)
+      const content = await promises.readFile(filePath, 'utf8')
+      return type === 'template' ? content as T : JSON.parse(content) as T
+    } catch {
       return null
     }
   }
 
   /**
-   * 确保主题文件存在，如果不存在则创建样本
-   * @param themeName 主题名称
+   * 确保模板文件存在，如果不存在则创建默认模板
+   * @param templateType 模板类型
+   * @param defaultContent 默认内容
    */
-  async ensureThemeExists(themeName: string): Promise<boolean> {
-    const filePath = this.getFilePath('theme', themeName)
-    if (existsSync(filePath)) return true
-    const sampleTheme = {
-      width: 480,
-      style: 'light' as const,
-      roundness: 'medium' as const,
-      backgroundImage: '',
-      backgroundOverlay: 'rgba(0, 0, 0, 0.1)',
-      headerShow: true,
-      headerLogo: '',
-      footerShow: true,
-      footerText: 'Custom Theme',
-      customColors: {
-        primary: '#2563eb',
-        background: '#ffffff',
-        text: '#1e293b'
-      }
+  async ensureTemplateExists(templateType: 'css' | 'html', defaultContent: string): Promise<boolean> {
+    const filePath = this.getFilePath('template', templateType)
+    try {
+      await promises.access(filePath)
+      return true
+    } catch {
+      return await this.save('template', templateType, defaultContent)
     }
-    const success = await this.save('theme', themeName, sampleTheme)
-    return success
   }
 }
 
@@ -118,7 +99,9 @@ export class MenuRender {
   constructor(
     private readonly ctx: Context,
     private readonly themeManager: ThemeManager,
-    private readonly themeConfig: ThemeConfig
+    private readonly computedTheme: ComputedTheme,
+    private readonly fileManager: FileManager,
+    private readonly templateSource: 'file' | 'inline'
   ) {}
 
   /**
@@ -126,8 +109,7 @@ export class MenuRender {
    * @param layoutConfig 布局配置
    */
   async renderToImage(layoutConfig: LayoutConfig): Promise<Buffer> {
-    if (!this.ctx.puppeteer) throw new Error('puppeteer 未启用')
-    const htmlContent = this.generateHtmlContent(layoutConfig)
+    const htmlContent = await this.generateHtmlContent(layoutConfig)
     const page = await this.ctx.puppeteer.page()
     await page.setContent(htmlContent)
     const containerElement = await page.$('.container')
@@ -138,13 +120,19 @@ export class MenuRender {
    * 生成HTML内容
    * @param layoutConfig 布局配置
    */
-  private generateHtmlContent(layoutConfig: LayoutConfig): string {
-    const computedTheme = this.themeManager.getComputedTheme(this.themeConfig)
-    const cssStyles = this.themeManager.generateCssStyles(computedTheme, layoutConfig)
-    const headerHtml = computedTheme.headerShow ? `
-      <div class="header">
-        ${computedTheme.headerLogo ? `<img src="${computedTheme.headerLogo}" class="header-logo" />` : ''}
-      </div>` : ''
+  private async generateHtmlContent(layoutConfig: LayoutConfig): Promise<string> {
+    const [cssContent, htmlTemplate] = await Promise.all([
+      this.getCssContent(),
+      this.getHtmlTemplate()
+    ])
+    // 生成头部和底部HTML
+    const headerHtml = this.computedTheme.header.show
+      ? `<div class="header">${this.contentProcessor.escapeHtml(this.computedTheme.header.text)}</div>`
+      : ''
+    const footerHtml = this.computedTheme.footer.show
+      ? `<div class="footer">${this.contentProcessor.escapeHtml(this.computedTheme.footer.text)}</div>`
+      : ''
+    // 生成网格项HTML
     const gridHtml = layoutConfig.items.map(item => {
       const gridStyle = `grid-row:${item.row}/span ${item.rowSpan || 1};grid-column:${item.col}/span ${item.colSpan || 1}`
       const itemClass = item.itemType ? ` ${item.itemType}` : ''
@@ -153,16 +141,48 @@ export class MenuRender {
       const badgeHtml = item.badge ? `<span class="grid-item-badge">${item.badge}</span>` : ''
       const titleHtml = item.title ? `<h3 class="grid-item-title">${this.contentProcessor.escapeHtml(item.title)}</h3>` : ''
       const mainContent = item.type === 'image'
-        ? `<img src="${item.content}" style="max-width:100%;border-radius:${computedTheme.borderRadius};" />`
+        ? `<img src="${item.content}" style="max-width:100%;border-radius:${this.computedTheme.borderRadius};" />`
         : `<div class="grid-item-content">${this.contentProcessor.escapeHtml(item.content)}</div>`
       return `<div class="grid-item${itemClass}" ${itemId} style="${gridStyle}">
         <div class="grid-item-header">${iconHtml}${badgeHtml}</div>${titleHtml}${mainContent}
       </div>`
     }).join('')
-    const footerHtml = computedTheme.footerShow ?
-      `<div class="footer">${this.contentProcessor.escapeHtml(computedTheme.footerText || '')}</div>` : ''
-    return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${cssStyles}</style></head><body>
-      <div class="container">${headerHtml}<div class="grid-container">${gridHtml}</div>${footerHtml}</div>
-    </body></html>`
+    return htmlTemplate
+      .replace('{{CSS_CONTENT}}', cssContent)
+      .replace('{{GRID_ROWS}}', layoutConfig.rows.toString())
+      .replace('{{GRID_COLS}}', layoutConfig.cols.toString())
+      .replace('{{HEADER_CONTENT}}', headerHtml)
+      .replace('{{GRID_CONTENT}}', gridHtml)
+      .replace('{{FOOTER_CONTENT}}', footerHtml)
+  }
+
+  /**
+   * 获取CSS内容
+   */
+  private async getCssContent(): Promise<string> {
+    if (this.templateSource === 'inline') return this.themeManager.generateDefaultCssTemplate(this.computedTheme)
+    const defaultCss = this.themeManager.generateDefaultCssTemplate(this.computedTheme)
+    await this.fileManager.ensureTemplateExists('css', defaultCss)
+    let cssContent = await this.fileManager.load<string>('template', 'css')
+    if (!cssContent) {
+      cssContent = defaultCss
+      await this.fileManager.save('template', 'css', cssContent)
+    }
+    return cssContent
+  }
+
+  /**
+   * 获取HTML模板
+   */
+  private async getHtmlTemplate(): Promise<string> {
+    if (this.templateSource === 'inline') return this.themeManager.generateDefaultHtmlTemplate()
+    const defaultHtml = this.themeManager.generateDefaultHtmlTemplate()
+    await this.fileManager.ensureTemplateExists('html', defaultHtml)
+    let htmlTemplate = await this.fileManager.load<string>('template', 'html')
+    if (!htmlTemplate) {
+      htmlTemplate = defaultHtml
+      await this.fileManager.save('template', 'html', htmlTemplate)
+    }
+    return htmlTemplate
   }
 }

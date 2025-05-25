@@ -51,10 +51,9 @@ export class ContentGenerator {
    * @param commandsData 命令数据
    */
   async generateLayout(commandName: string = null, commandsData: CommandData[]): Promise<LayoutConfig> {
-    if (!commandsData?.length) return null
+    if (!commandsData.length) return null
 
     logger.debug(`生成布局: ${commandName || 'main'}`)
-
     return commandName ? this.createDetailLayout(commandName, commandsData) : this.createMenuLayout(commandsData)
   }
 
@@ -84,28 +83,24 @@ export class ContentGenerator {
     addItem(commandData.description || '无描述', commandData.name, 'code', itemType)
 
     // 用法
-    if (commandData.usage) {
-      addItem(commandData.usage, '用法', 'description')
-    }
+    if (commandData.usage) addItem(commandData.usage, '用法', 'description')
 
     // 选项
-    if (commandData.options?.length > 0) {
-      const optionsContent = commandData.options.map(opt =>
-        `${opt.name}${opt.syntax ? ' ' + opt.syntax : ''}${opt.description ? '\n  ' + opt.description : ''}`
-      ).join('\n\n')
+    if (commandData.options.length) {
+      const optionsContent = commandData.options
+        .map(opt => `${opt.name}${opt.syntax ? ' ' + opt.syntax : ''}${opt.description ? '\n  ' + opt.description : ''}`)
+        .join('\n\n')
       addItem(optionsContent, '选项', 'tune', 'option', commandData.options.length)
     }
 
     // 示例
-    if (commandData.examples?.length > 0) {
-      addItem(commandData.examples.join('\n'), '示例', 'integration_instructions')
-    }
+    if (commandData.examples.length) addItem(commandData.examples.join('\n'), '示例', 'integration_instructions')
 
     // 子命令
-    if (commandData.subCommands?.length > 0) {
-      const subCommandsContent = commandData.subCommands.map(sub =>
-        `${sub.name}${sub.description ? ` - ${sub.description}` : ''}`
-      ).join('\n')
+    if (commandData.subCommands?.length) {
+      const subCommandsContent = commandData.subCommands
+        .map(sub => `${sub.name}${sub.description ? ` - ${sub.description}` : ''}`)
+        .join('\n')
       addItem(subCommandsContent, '子命令', 'account_tree', 'subCommand', commandData.subCommands.length)
     }
 
@@ -119,7 +114,7 @@ export class ContentGenerator {
   private createMenuLayout(commandsData: CommandData[]): LayoutConfig {
     const commandGroups = commandsData.reduce((groups, command) => {
       const rootName = command.name.split('.')[0]
-      if (!groups[rootName]) groups[rootName] = []
+      groups[rootName] = groups[rootName] || []
       groups[rootName].push(command)
       return groups
     }, {} as Record<string, CommandData[]>)
@@ -132,21 +127,21 @@ export class ContentGenerator {
     const gridColumns = 2
 
     Object.entries(commandGroups).forEach(([rootName, groupCommands], index) => {
-      const counts = {
-        cmd: groupCommands.length,
-        sub: groupCommands.reduce((sum, cmd) => sum + (cmd.subCommands?.length || 0), 0),
-        opt: groupCommands.reduce((sum, cmd) => sum + (cmd.options?.length || 0), 0)
-      }
+      const counts = [
+        groupCommands.length,
+        groupCommands.reduce((sum, cmd) => sum + (cmd.subCommands?.length || 0), 0),
+        groupCommands.reduce((sum, cmd) => sum + cmd.options.length, 0)
+      ].filter(count => count > 0)
 
       gridItems.push({
         row: Math.floor(index / gridColumns) + 2,
         col: (index % gridColumns) + 1,
         type: 'text',
-        content: groupCommands.map(cmd =>
-          `${cmd.name}${cmd.description ? ` - ${cmd.description}` : ''}`
-        ).join('\n'),
+        content: groupCommands
+          .map(cmd => `${cmd.name}${cmd.description ? ` - ${cmd.description}` : ''}`)
+          .join('\n'),
         title: rootName,
-        badge: Object.values(counts).filter(count => count > 0).join('+'),
+        badge: counts.join('+'),
         id: `cmd-${rootName}`,
         itemType: 'command'
       })
