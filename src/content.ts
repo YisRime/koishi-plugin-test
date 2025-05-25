@@ -1,5 +1,4 @@
 import { CommandData } from './extract'
-import { logger } from './index'
 
 export interface GridItem {
   row: number
@@ -52,64 +51,69 @@ export class ContentGenerator {
    */
   async generateLayout(commandName: string = null, commandsData: CommandData[]): Promise<LayoutConfig> {
     if (!commandsData.length) return null
-
-    logger.debug(`生成布局: ${commandName || 'main'}`)
     return commandName ? this.createDetailLayout(commandName, commandsData) : this.createMenuLayout(commandsData)
   }
 
   /**
    * 创建详细布局（单个命令）
-   * @param commandName 命令名称
-   * @param commandsData 命令数据
    */
   private createDetailLayout(commandName: string, commandsData: CommandData[]): LayoutConfig {
     const commandData = commandsData.find(cmd => cmd.name === commandName) ||
                        commandsData.flatMap(cmd => cmd.subCommands || []).find(sub => sub.name === commandName)
-
     if (!commandData) return null
 
-    const gridItems: GridItem[] = []
-    let currentRow = 1
-    const itemType = commandData.name.includes('.') ? 'subCommand' : 'command'
+    const items: GridItem[] = []
+    let row = 1
 
-    const addItem = (content: string, title: string, icon: string, type = 'command', badge?: any) => {
-      gridItems.push({
-        row: currentRow++, col: 1, rowSpan: 1, colSpan: 1, type: 'text', content, title, icon, iconType: 'material',
-        id: `sec-${title.toLowerCase().replace(/\s+/g, '-')}`, itemType: type as any, badge
+    // 基本信息
+    items.push({
+      row: row++, col: 1, rowSpan: 1, colSpan: 1, type: 'text',
+      content: commandData.description || '无描述', title: commandData.name,
+      icon: 'code', iconType: 'material', id: `sec-${commandData.name}`, itemType: 'command'
+    })
+
+    // 添加各个部分
+    if (commandData.usage) {
+      items.push({
+        row: row++, col: 1, rowSpan: 1, colSpan: 1, type: 'text',
+        content: commandData.usage, title: '用法',
+        icon: 'description', iconType: 'material', id: 'sec-usage', itemType: 'command'
       })
     }
 
-    // 基本信息
-    addItem(commandData.description || '无描述', commandData.name, 'code', itemType)
-
-    // 用法
-    if (commandData.usage) addItem(commandData.usage, '用法', 'description')
-
-    // 选项
     if (commandData.options.length) {
-      const optionsContent = commandData.options
-        .map(opt => `${opt.name}${opt.syntax ? ' ' + opt.syntax : ''}${opt.description ? '\n  ' + opt.description : ''}`)
-        .join('\n\n')
-      addItem(optionsContent, '选项', 'tune', 'option', commandData.options.length)
+      items.push({
+        row: row++, col: 1, rowSpan: 1, colSpan: 1, type: 'text',
+        content: commandData.options.map(opt =>
+          `${opt.name}${opt.syntax ? ' ' + opt.syntax : ''}${opt.description ? '\n  ' + opt.description : ''}`
+        ).join('\n\n'),
+        title: '选项', icon: 'tune', iconType: 'material', badge: commandData.options.length,
+        id: 'sec-options', itemType: 'option'
+      })
     }
 
-    // 示例
-    if (commandData.examples.length) addItem(commandData.examples.join('\n'), '示例', 'integration_instructions')
+    if (commandData.examples.length) {
+      items.push({
+        row: row++, col: 1, rowSpan: 1, colSpan: 1, type: 'text',
+        content: commandData.examples.join('\n'), title: '示例',
+        icon: 'integration_instructions', iconType: 'material', id: 'sec-examples', itemType: 'command'
+      })
+    }
 
-    // 子命令
     if (commandData.subCommands?.length) {
-      const subCommandsContent = commandData.subCommands
-        .map(sub => `${sub.name}${sub.description ? ` - ${sub.description}` : ''}`)
-        .join('\n')
-      addItem(subCommandsContent, '子命令', 'account_tree', 'subCommand', commandData.subCommands.length)
+      items.push({
+        row: row++, col: 1, rowSpan: 1, colSpan: 1, type: 'text',
+        content: commandData.subCommands.map(sub => `${sub.name}${sub.description ? ` - ${sub.description}` : ''}`).join('\n'),
+        title: '子命令', icon: 'account_tree', iconType: 'material', badge: commandData.subCommands.length,
+        id: 'sec-subcommands', itemType: 'subCommand'
+      })
     }
 
-    return { rows: currentRow - 1, cols: 1, items: gridItems }
+    return { rows: row - 1, cols: 1, items }
   }
 
   /**
    * 创建菜单布局（命令列表）
-   * @param commandsData 命令数据
    */
   private createMenuLayout(commandsData: CommandData[]): LayoutConfig {
     const commandGroups = commandsData.reduce((groups, command) => {
@@ -119,13 +123,11 @@ export class ContentGenerator {
       return groups
     }, {} as Record<string, CommandData[]>)
 
-    const gridItems: GridItem[] = [{
-      row: 1, col: 1, type: 'text', content: '点击查看详情',
-      rowSpan: 1, colSpan: 2, title: '命令菜单', icon: 'menu', iconType: 'material',
-      id: 'menu-title', itemType: 'title'
+    const items: GridItem[] = [{
+      row: 1, col: 1, rowSpan: 1, colSpan: 2, type: 'text',
+      content: '点击查看详情', title: '命令菜单',
+      icon: 'menu', iconType: 'material', id: 'sec-title', itemType: 'title'
     }]
-
-    const gridColumns = 2
 
     Object.entries(commandGroups).forEach(([rootName, groupCommands], index) => {
       const counts = [
@@ -134,28 +136,19 @@ export class ContentGenerator {
         groupCommands.reduce((sum, cmd) => sum + cmd.options.length, 0)
       ].filter(count => count > 0)
 
-      gridItems.push({
-        row: Math.floor(index / gridColumns) + 2,
-        col: (index % gridColumns) + 1,
-        rowSpan: 1,
-        colSpan: 1,
-        type: 'text',
-        content: groupCommands
-          .map(cmd => `${cmd.name}${cmd.description ? ` - ${cmd.description}` : ''}`)
-          .join('\n'),
-        title: rootName,
-        badge: counts.join('+'),
-        id: `cmd-${rootName}`,
-        itemType: 'command',
-        icon: 'code',
-        iconType: 'material'
-    })
+      items.push({
+        row: Math.floor(index / 2) + 2, col: (index % 2) + 1,
+        rowSpan: 1, colSpan: 1, type: 'text',
+        content: groupCommands.map(cmd => `${cmd.name}${cmd.description ? ` - ${cmd.description}` : ''}`).join('\n'),
+        title: rootName, icon: 'code', iconType: 'material', badge: counts.join('+'),
+        id: `cmd-${rootName}`, itemType: 'command'
+      })
     })
 
     return {
-      rows: Math.ceil(Object.keys(commandGroups).length / gridColumns) + 1,
-      cols: gridColumns,
-      items: gridItems
+      rows: Math.ceil(Object.keys(commandGroups).length / 2) + 1,
+      cols: 2,
+      items
     }
   }
 }

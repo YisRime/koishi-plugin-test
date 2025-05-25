@@ -28,7 +28,7 @@ export interface ComputedTheme {
  * 主题管理器 - 处理主题样式和渲染
  */
 export class ThemeManager {
-  private readonly presetColors = {
+  private readonly presets = {
     light: {
       primary: '#2563eb', secondary: '#64748b', accent: '#0ea5e9',
       background: '#ffffff', surface: '#f8fafc', text: '#1e293b',
@@ -45,8 +45,9 @@ export class ThemeManager {
    * 获取计算后的主题配置
    */
   async getComputedTheme(config: Config, fileManager?: any): Promise<ComputedTheme> {
-    const preset = config.themePreset || 'light'
-    const baseColors = this.presetColors[preset === 'custom' ? 'light' : preset]
+    const preset = config.themePreset === 'custom' ? 'light' : config.themePreset
+    const baseColors = this.presets[preset] || this.presets.light
+
     // 合并颜色配置
     const colors = {
       ...baseColors,
@@ -60,17 +61,15 @@ export class ThemeManager {
       ...(config.borderColor && { border: config.borderColor }),
       ...(config.shadowColor && { shadow: config.shadowColor })
     }
+
     // 处理资源文件
-    const [backgroundImage, fontUrl] = await Promise.all([
-      this.resolveAsset(config.backgroundImage, fileManager),
-      this.resolveAsset(config.fontUrl, fileManager)
-    ])
+    const backgroundImage = await this.resolveAsset(config.backgroundImage, fileManager)
+    const fontUrl = await this.resolveAsset(config.fontUrl, fileManager)
+
     // 构建阴影效果
-    const shadowBlur = config.shadowBlur ?? 8
-    const shadowSpread = config.shadowSpread ?? 2
-    const shadow = preset === 'dark'
-      ? `0 ${shadowSpread * 2}px ${shadowBlur * 1.5}px ${colors.shadow}, 0 ${shadowSpread}px ${shadowBlur / 2}px ${colors.shadow}`
-      : `0 ${shadowSpread}px ${shadowBlur}px ${colors.shadow}, 0 ${shadowSpread / 2}px ${shadowBlur / 2}px ${colors.shadow}`
+    const shadowMultiplier = preset === 'dark' ? 1.5 : 1
+    const shadow = `0 ${(config.shadowSpread || 2) * 2}px ${(config.shadowBlur || 8) * shadowMultiplier}px ${colors.shadow}, 0 ${config.shadowSpread || 2}px ${(config.shadowBlur || 8) / 2}px ${colors.shadow}`
+
     return {
       colors,
       typography: {
@@ -119,15 +118,17 @@ export class ThemeManager {
    * 生成默认CSS模板
    */
   generateDefaultCssTemplate(theme: ComputedTheme): string {
+    const imports = [
+      'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap',
+      'https://fonts.googleapis.com/icon?family=Material+Icons+Round',
+      ...(theme.fontUrl ? [theme.fontUrl] : [])
+    ].map(url => `@import url('${url}');`).join('\n')
+
     const backgroundStyles = theme.backgroundImage
       ? `background-image: url('${theme.backgroundImage}'); background-size: cover; background-position: center; background-repeat: no-repeat;`
       : `background: ${theme.colors.background};`
-    const fontImport = theme.fontUrl ? `@import url('${theme.fontUrl}');` : ''
-    const glassEffect = theme.effects.enableGlass ? this.generateGlassEffect(theme) : ''
-    return `
-      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap');
-      @import url('https://fonts.googleapis.com/icon?family=Material+Icons+Round');
-      ${fontImport}
+
+    return `${imports}
       * { box-sizing: border-box; margin: 0; padding: 0; }
       body { font-family: ${theme.typography.fontFamily}; font-size: ${theme.typography.fontSize}px;
              line-height: ${theme.typography.lineHeight}; color: ${theme.colors.text}; ${backgroundStyles}
@@ -136,30 +137,16 @@ export class ThemeManager {
 
       .container { max-width: fit-content; min-width: 320px; padding: ${theme.spacing.containerPadding};
                   position: relative; border-radius: ${theme.borderRadius}; background: ${theme.colors.surface};
-                  box-shadow: ${theme.effects.shadow}; margin: 0 auto; }
-      ${glassEffect}
-      ${this.generateLayoutStyles(theme)}
-      ${this.generateGridStyles(theme)}
-      ${this.generateItemStyles(theme)}
-    `
-  }
+                  box-shadow: ${theme.effects.shadow}; margin: 0 auto;
+                  ${theme.effects.enableGlass ? `backdrop-filter: blur(${theme.effects.backdropBlur}px); -webkit-backdrop-filter: blur(${theme.effects.backdropBlur}px);` : ''} }
 
-  /**
-   * 生成毛玻璃效果CSS
-   */
-  private generateGlassEffect(theme: ComputedTheme): string {
-    return `
-      .container { backdrop-filter: blur(${theme.effects.backdropBlur}px); -webkit-backdrop-filter: blur(${theme.effects.backdropBlur}px); }
-      .grid-item, .header, .footer { backdrop-filter: blur(${theme.effects.backdropBlur * 0.6}px); -webkit-backdrop-filter: blur(${theme.effects.backdropBlur * 0.6}px); }
-    `
-  }
+      .grid-container { display: grid; width: 100%; gap: ${theme.spacing.itemSpacing}px; position: relative; z-index: 1;
+                       grid-template-rows: repeat(var(--grid-rows), auto); grid-template-columns: repeat(var(--grid-cols), 1fr);
+                       margin-bottom: ${theme.innerPadding}px; }
+      .grid-container:last-child { margin-bottom: 0; }
 
-  /**
-   * 生成布局样式CSS
-   */
-  private generateLayoutStyles(theme: ComputedTheme): string {
-    return `
-      .header, .footer { border-radius: ${theme.borderRadius}; position: relative; z-index: 1; width: 100%; }
+      .header, .footer { border-radius: ${theme.borderRadius}; position: relative; z-index: 1; width: 100%;
+                        ${theme.effects.enableGlass ? `backdrop-filter: blur(${theme.effects.backdropBlur * 0.6}px); -webkit-backdrop-filter: blur(${theme.effects.backdropBlur * 0.6}px);` : ''} }
       .header { background: linear-gradient(135deg, ${theme.colors.surface}, ${theme.colors.background});
                color: ${theme.colors.text}; padding: ${theme.spacing.itemPadding}; text-align: center;
                border: ${theme.effects.borderStyle} ${theme.colors.border}; box-shadow: ${theme.effects.shadow};
@@ -167,30 +154,13 @@ export class ThemeManager {
                margin-bottom: ${theme.innerPadding}px; }
       .footer { text-align: center; background: ${theme.colors.surface}; color: ${theme.colors.textSecondary};
                font-size: 13px; padding: 16px; border: ${theme.effects.borderStyle} ${theme.colors.border};
-               opacity: 0.7; font-weight: 500; display: flex; align-items: center; justify-content: center; }
-    `
-  }
+               box-shadow: ${theme.effects.shadow}; opacity: 0.7; font-weight: 500;
+               display: flex; align-items: center; justify-content: center; }
 
-  /**
-   * 生成网格样式CSS
-   */
-  private generateGridStyles(theme: ComputedTheme): string {
-    return `
-      .grid-container { display: grid; width: 100%; gap: ${theme.spacing.itemSpacing}px; position: relative; z-index: 1;
-                       grid-template-rows: repeat(var(--grid-rows), auto); grid-template-columns: repeat(var(--grid-cols), 1fr);
-                       margin-bottom: ${theme.innerPadding}px; }
-      .grid-container:last-child { margin-bottom: 0; }
-    `
-  }
-
-  /**
-   * 生成项目样式CSS
-   */
-  private generateItemStyles(theme: ComputedTheme): string {
-    return `
       .grid-item { background: ${theme.colors.surface}; padding: ${theme.spacing.itemPadding}; border-radius: ${theme.borderRadius};
-                  border: ${theme.effects.borderStyle} ${theme.colors.border}; box-shadow: ${theme.effects.shadow};
-                  position: relative; overflow: hidden; min-width: 200px; }
+                  position: relative; z-index: 1; border: ${theme.effects.borderStyle} ${theme.colors.border};
+                  box-shadow: ${theme.effects.shadow}; overflow: hidden; min-width: 200px;
+                  ${theme.effects.enableGlass ? `backdrop-filter: blur(${theme.effects.backdropBlur * 0.6}px); -webkit-backdrop-filter: blur(${theme.effects.backdropBlur * 0.6}px);` : ''} }
       .grid-item-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; position: relative; }
       .grid-item-title { font-weight: ${theme.typography.titleWeight}; font-size: ${theme.typography.titleSize}em;
                         margin: 0; color: ${theme.colors.primary}; letter-spacing: -0.02em; }
@@ -200,20 +170,16 @@ export class ThemeManager {
                           white-space: pre-wrap; font-size: 0.95em; }
       .grid-item-badge { position: absolute; top: -8px; right: -8px; background: ${theme.colors.accent};
                         color: ${theme.colors.surface}; border-radius: 16px; padding: 4px 10px;
-                        font-size: 0.7em; font-weight: 700; box-shadow: ${theme.effects.shadow};
-                        letter-spacing: 0.5px; }
-      .grid-item.subCommand::before, .grid-item.option::before {
-        content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
-        border-radius: 0 ${theme.borderRadius} ${theme.borderRadius} 0;
-      }
+                        font-size: 0.7em; font-weight: 700; box-shadow: ${theme.effects.shadow}; letter-spacing: 0.5px; }
+
+      .grid-item.subCommand::before, .grid-item.option::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 0 ${theme.borderRadius} ${theme.borderRadius} 0; }
       .grid-item.subCommand::before { background: linear-gradient(180deg, ${theme.colors.secondary}, ${theme.colors.primary}); }
       .grid-item.option::before { background: linear-gradient(180deg, ${theme.colors.accent}, ${theme.colors.secondary}); }
       .grid-item.title .grid-item-title { font-size: 1.4em; color: ${theme.colors.primary}; text-align: center;
                                          font-weight: 700; letter-spacing: -0.03em; }
       .grid-item.title { background: linear-gradient(135deg, ${theme.colors.primary}12, ${theme.colors.secondary}08);
                         border: 2px solid ${theme.colors.primary}20; }
-      .grid-item.command { background: linear-gradient(135deg, ${theme.colors.surface}, ${theme.colors.background}); }
-    `
+      .grid-item.command { background: linear-gradient(135deg, ${theme.colors.surface}, ${theme.colors.background}); }`
   }
 
   /**
