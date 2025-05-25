@@ -4,16 +4,16 @@ import { logger } from './index'
 export interface GridItem {
   row: number
   col: number
-  rowSpan?: number
-  colSpan?: number
+  rowSpan: number
+  colSpan: number
   type: 'text' | 'image'
   content: string
-  title?: string
-  icon?: string
-  iconType?: 'material'
+  title: string
+  icon: string
+  iconType: 'material'
   badge?: string | number
-  id?: string
-  itemType?: 'command' | 'subCommand' | 'option' | 'title' | 'header'
+  id: string
+  itemType: 'command' | 'subCommand' | 'option' | 'title' | 'header'
 }
 
 export interface LayoutConfig {
@@ -74,7 +74,7 @@ export class ContentGenerator {
 
     const addItem = (content: string, title: string, icon: string, type = 'command', badge?: any) => {
       gridItems.push({
-        row: currentRow++, col: 1, type: 'text', content, title, icon, iconType: 'material',
+        row: currentRow++, col: 1, rowSpan: 1, colSpan: 1, type: 'text', content, title, icon, iconType: 'material',
         id: `sec-${title.toLowerCase().replace(/\s+/g, '-')}`, itemType: type as any, badge
       })
     }
@@ -121,7 +121,8 @@ export class ContentGenerator {
 
     const gridItems: GridItem[] = [{
       row: 1, col: 1, type: 'text', content: '点击查看详情',
-      colSpan: 2, title: '命令菜单', id: 'menu-title', itemType: 'title'
+      rowSpan: 1, colSpan: 2, title: '命令菜单', icon: 'menu', iconType: 'material',
+      id: 'menu-title', itemType: 'title'
     }]
 
     const gridColumns = 2
@@ -136,6 +137,8 @@ export class ContentGenerator {
       gridItems.push({
         row: Math.floor(index / gridColumns) + 2,
         col: (index % gridColumns) + 1,
+        rowSpan: 1,
+        colSpan: 1,
         type: 'text',
         content: groupCommands
           .map(cmd => `${cmd.name}${cmd.description ? ` - ${cmd.description}` : ''}`)
@@ -143,8 +146,10 @@ export class ContentGenerator {
         title: rootName,
         badge: counts.join('+'),
         id: `cmd-${rootName}`,
-        itemType: 'command'
-      })
+        itemType: 'command',
+        icon: 'code',
+        iconType: 'material'
+    })
     })
 
     return {

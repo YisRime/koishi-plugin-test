@@ -16,28 +16,28 @@ export interface Config {
   // 主题配置
   themePreset: 'light' | 'dark' | 'custom'
   // 间距配置
-  outerPadding?: number
-  innerPadding?: number
-  itemPadding?: number
-  itemSpacing?: number
-  containerPadding?: number
+  outerPadding: number
+  innerPadding: number
+  itemPadding: number
+  itemSpacing: number
+  containerPadding: number
   // 视觉配置
   backgroundImage?: string
-  roundness?: number
-  shadowBlur?: number
-  shadowSpread?: number
-  backdropBlur?: number
-  enableGlassEffect?: boolean
+  roundness: number
+  shadowBlur: number
+  shadowSpread: number
+  backdropBlur: number
+  enableGlassEffect: boolean
   // 字体配置
   fontFamily?: string
   fontUrl?: string
-  fontSize?: number
-  titleSize?: number
-  titleWeight?: string
-  lineHeight?: number
+  fontSize: number
+  titleSize: number
+  titleWeight: string
+  lineHeight: number
   // 显示配置
   headerText?: string
-  footerText?: string
+  footerText: string
   // 颜色配置
   primaryColor?: string
   backgroundColor?: string
@@ -120,12 +120,10 @@ export function apply(ctx: Context, config: Config) {
   ctx.command('menu [commandName:string]', '显示指令帮助')
     .action(async ({ session }, commandName) => {
       const userLocale = commandExtractor.getUserLocale(session)
-
       const [computedTheme, commandsData] = await Promise.all([
         themeManager.getComputedTheme(config, fileManager),
         commandName ? getCommandData(commandName, session, userLocale) : getMainMenuData(session, userLocale)
       ])
-
       const layoutKey = commandName || 'main'
       let layoutConfig = config.layoutSource === 'file'
         ? await fileManager.load<LayoutConfig>('layout', layoutKey)

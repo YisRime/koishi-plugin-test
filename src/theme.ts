@@ -1,13 +1,12 @@
-import { logger } from './index'
 import type { Config } from './index'
 
 export interface ThemeConfig {
   themePreset: 'light' | 'dark' | 'glass' | 'custom'
-  spacing?: { outer?: number; inner?: number; item?: number; itemGap?: number; container?: number }
-  visual?: { backgroundImage?: string; roundness?: number; shadowBlur?: number; shadowSpread?: number; backdropBlur?: number; enableGlass?: boolean }
-  typography?: { fontFamily?: string; fontUrl?: string; fontSize?: number; titleSize?: number; titleWeight?: string; lineHeight?: number }
-  display?: { headerText?: string; footerText?: string }
-  colors?: { primary?: string; background?: string; text?: string; secondary?: string; accent?: string; surface?: string; textSecondary?: string; border?: string; shadow?: string }
+  spacing: { outer: number; inner: number; item: number; itemGap: number; container: number }
+  visual: { backgroundImage: string; roundness: number; shadowBlur: number; shadowSpread: number; backdropBlur: number; enableGlass: boolean }
+  typography: { fontFamily: string; fontUrl: string; fontSize: number; titleSize: number; titleWeight: string; lineHeight: number }
+  display: { headerText: string; footerText: string }
+  colors: { primary: string; background: string; text: string; secondary: string; accent: string; surface: string; textSecondary: string; border: string; shadow: string }
 }
 
 export interface ComputedTheme {
@@ -48,8 +47,6 @@ export class ThemeManager {
   async getComputedTheme(config: Config, fileManager?: any): Promise<ComputedTheme> {
     const preset = config.themePreset || 'light'
     const baseColors = this.presetColors[preset === 'custom' ? 'light' : preset]
-    logger.debug(`使用主题: ${preset}`)
-
     // 合并颜色配置
     const colors = {
       ...baseColors,
@@ -63,20 +60,17 @@ export class ThemeManager {
       ...(config.borderColor && { border: config.borderColor }),
       ...(config.shadowColor && { shadow: config.shadowColor })
     }
-
     // 处理资源文件
     const [backgroundImage, fontUrl] = await Promise.all([
       this.resolveAsset(config.backgroundImage, fileManager),
       this.resolveAsset(config.fontUrl, fileManager)
     ])
-
     // 构建阴影效果
     const shadowBlur = config.shadowBlur ?? 8
     const shadowSpread = config.shadowSpread ?? 2
     const shadow = preset === 'dark'
       ? `0 ${shadowSpread * 2}px ${shadowBlur * 1.5}px ${colors.shadow}, 0 ${shadowSpread}px ${shadowBlur / 2}px ${colors.shadow}`
       : `0 ${shadowSpread}px ${shadowBlur}px ${colors.shadow}, 0 ${shadowSpread / 2}px ${shadowBlur / 2}px ${colors.shadow}`
-
     return {
       colors,
       typography: {
@@ -128,15 +122,12 @@ export class ThemeManager {
     const backgroundStyles = theme.backgroundImage
       ? `background-image: url('${theme.backgroundImage}'); background-size: cover; background-position: center; background-repeat: no-repeat;`
       : `background: ${theme.colors.background};`
-
     const fontImport = theme.fontUrl ? `@import url('${theme.fontUrl}');` : ''
     const glassEffect = theme.effects.enableGlass ? this.generateGlassEffect(theme) : ''
-
     return `
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap');
       @import url('https://fonts.googleapis.com/icon?family=Material+Icons+Round');
       ${fontImport}
-
       * { box-sizing: border-box; margin: 0; padding: 0; }
       body { font-family: ${theme.typography.fontFamily}; font-size: ${theme.typography.fontSize}px;
              line-height: ${theme.typography.lineHeight}; color: ${theme.colors.text}; ${backgroundStyles}
@@ -147,7 +138,6 @@ export class ThemeManager {
                   position: relative; border-radius: ${theme.borderRadius}; background: ${theme.colors.surface};
                   box-shadow: ${theme.effects.shadow}; margin: 0 auto; }
       ${glassEffect}
-
       ${this.generateLayoutStyles(theme)}
       ${this.generateGridStyles(theme)}
       ${this.generateItemStyles(theme)}
@@ -212,7 +202,6 @@ export class ThemeManager {
                         color: ${theme.colors.surface}; border-radius: 16px; padding: 4px 10px;
                         font-size: 0.7em; font-weight: 700; box-shadow: ${theme.effects.shadow};
                         letter-spacing: 0.5px; }
-
       .grid-item.subCommand::before, .grid-item.option::before {
         content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
         border-radius: 0 ${theme.borderRadius} ${theme.borderRadius} 0;
@@ -232,18 +221,15 @@ export class ThemeManager {
    */
   generateDefaultHtmlTemplate(): string {
     return `<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <style>{{CSS_CONTENT}}</style>
-</head>
-<body>
-    <div class="container" style="--grid-rows: {{GRID_ROWS}}; --grid-cols: {{GRID_COLS}};">
+    <html>
+    <head><meta charset="UTF-8"><style>{{CSS_CONTENT}}</style></head>
+    <body>
+      <div class="container" style="--grid-rows: {{GRID_ROWS}}; --grid-cols: {{GRID_COLS}};">
         {{HEADER_CONTENT}}
         <div class="grid-container">{{GRID_CONTENT}}</div>
         {{FOOTER_CONTENT}}
-    </div>
-</body>
-</html>`
+      </div>
+    </body>
+    </html>`
   }
 }
