@@ -1,206 +1,151 @@
 import { Context } from 'koishi'
 import { logger } from './index'
-import { join } from 'path'
-import { File } from './utils'
 
-/**
- * 命令选项接口
- */
-export interface CommandOption {
-  name: string;
-  description: string;
+export interface CmdOption {
+  name: string
+  description: string
   syntax: string
 }
 
-/**
- * 命令数据接口
- */
 export interface CommandData {
-  name: string;
-  description: string;
-  usage: string;
-  options: CommandOption[];
-  examples: string[];
-  subCommands?: CommandData[];
+  name: string
+  description: string
+  usage: string
+  options: CmdOption[]
+  examples: string[]
+  subCommands?: CommandData[]
 }
 
 /**
- * 命令提取器类，用于提取、处理和保存命令数据
+ * 命令提取
  */
-export class Extract {
-  private file: File
-  private cmdDir: string
+export class CommandExtractor {
+  constructor(private readonly ctx: Context) {}
 
   /**
-   * 创建命令提取器实例
-   * @param ctx - Koishi 上下文
+   * 获取用户语言环境
+   * @param session 会话对象
    */
-  constructor(private ctx: Context) {
-    const dataDir = join(ctx.baseDir, 'data/test')
-    this.file = new File(dataDir)
-    this.cmdDir = join(dataDir, 'commands')
-  }
-
-  /**
-   * 获取命令数据文件的路径
-   * @param locale - 可选的语言代码
-   * @returns 命令数据文件的完整路径
-   */
-  private getCommandsPath(locale?: string): string {
-    return join(this.cmdDir, locale ? `commands_${locale}.json` : 'commands.json')
-  }
-
-  /**
-   * 保存命令数据到文件
-   * @param cmds - 要保存的命令数据数组
-   * @param locale - 可选的语言代码
-   * @returns 保存是否成功
-   */
-  public async saveCommandsData(cmds: CommandData[], locale?: string): Promise<boolean> {
-    if (!cmds.length) return false
-    const path = this.getCommandsPath(locale)
-    await this.file.ensureDir(path)
-    return this.file.writeFile(path, JSON.stringify(cmds, null, 2))
-  }
-
-  /**
-   * 从文件加载命令数据
-   * @param locale - 可选的语言代码
-   * @returns 命令数据数组，如果加载失败则返回 null
-   */
-  public async loadCommandsData(locale?: string): Promise<CommandData[]|null> {
-    try {
-      const data = await this.file.readFile(this.getCommandsPath(locale))
-      return data ? JSON.parse(data) : null
-    } catch (err) {
-      logger.error(`读取命令数据失败: ${this.getCommandsPath(locale)}`, err)
-      return null
-    }
-  }
-
-  /**
-   * 获取用户的语言设置
-   * @param session - 用户会话对象
-   * @returns 用户的语言代码
-   */
-  public getUserLocale(session: any): string {
+  getUserLocale(session: any): string {
     if (!session) return ''
-    const locales = [
+    const availableLocales = [
       ...(session.locales || []), ...(session.channel?.locales || []),
-      ...(session.guild?.locales || []), ...(session.user?.locales || [])
+      ...(session.guild?.locales || []), ...(session.user?.locales || []),
     ]
-    return locales.length ? (this.ctx.i18n.fallback(locales)[0] || '') : ''
+    return availableLocales.length ? this.ctx.i18n.fallback(availableLocales)[0] || '' : ''
   }
 
   /**
-   * 获取处理过的命令列表
-   * @param locale - 语言代码
-   * @returns 处理后的命令数据数组
+   * 提取所有内联命令
+   * @param session 会话对象
+   * @param userLocale 用户语言环境
    */
-  public async getProcessedCommands(locale: string): Promise<CommandData[]> {
-    const locales = locale ? [locale] : []
-    const session = this.createSession(locales)
-    const cmds = await Promise.all(
-      this.ctx.$commander._commandList
-        .filter((cmd: any) => !cmd.parent)
-        .map(cmd => this.extractCmdInfo(cmd, session))
-    )
-    return JSON.parse(JSON.stringify(cmds.filter(Boolean).sort((a, b) => a.name.localeCompare(b.name))));
+  async extractInlineCommands(session: any, userLocale = ''): Promise<CommandData[]> {
+    if (userLocale && session) session.locales = [userLocale, ...(session.locales || [])]
+    const rootCommands = this.ctx.$commander._commandList.filter((cmd) => !cmd.parent && cmd.ctx.filter(session))
+    const extractedCommands = await Promise.all(rootCommands.map((cmd) => this.extractCommandData(cmd, session)))
+    return extractedCommands.filter(Boolean).sort((a, b) => a.name.localeCompare(b.name))
   }
 
   /**
-   * 创建一个用于国际化文本处理的会话对象
-   * @param locales - 语言代码数组
-   * @returns 会话对象
-   * @private
+   * 按需提取单个命令信息
+   * @param session 会话对象
+   * @param commandName 命令名称
+   * @param userLocale 用户语言环境
    */
-  private createSession(locales: string[] = []) {
-    return {
-      app: this.ctx.app, user: { authority: 4 }, isDirect: true, locales,
-      text: (path, params) => this.ctx.i18n.render(locales, Array.isArray(path) ? path : [path], params),
-      resolve: (val) => typeof val === 'function' ? val(this) : val
+  async extractSingleCommand(session: any, commandName: string, userLocale = ''): Promise<CommandData | null> {
+    if (userLocale && session) session.locales = [userLocale, ...(session.locales || [])]
+    const command = this.findCommand(commandName, session)
+    if (!command || Array.isArray(command)) return null
+    return await this.extractCommandData(command, session)
+  }
+
+  /**
+   * 获取相关命令列表
+   * @param session 会话对象
+   * @param commandName 命令名称
+   * @param userLocale 用户语言环境
+   */
+  async extractRelatedCommands(session: any, commandName: string, userLocale = ''): Promise<CommandData[]> {
+    const targetCommand = await this.extractSingleCommand(session, commandName, userLocale)
+    if (!targetCommand) return []
+    const relatedCommands: CommandData[] = [targetCommand]
+    // 如果是子命令，也包含父命令
+    if (commandName.includes('.')) {
+      const parentName = commandName.split('.')[0]
+      const parentCommand = await this.extractSingleCommand(session, parentName, userLocale)
+      if (parentCommand && !relatedCommands.find(cmd => cmd.name === parentCommand.name)) relatedCommands.unshift(parentCommand)
     }
+    return relatedCommands
   }
 
   /**
-   * 提取命令的详细信息
-   * @param cmd - 命令对象
-   * @param session - 可选的会话对象，用于文本国际化
-   * @returns 处理后的命令数据，失败则返回 null
+   * 查找命令
+   * @param target 目标命令名
+   * @param session 会话对象
    */
-  public async extractCmdInfo(cmd: any, session?: any): Promise<CommandData|null> {
-    if (!cmd) return null
-    session = session || this.createSession()
+  private findCommand(target: string, session: any) {
+    const $ = this.ctx.$commander
+    const command = $.resolve(target, session)
+    if (command?.ctx.filter(session)) return command
+    // 尝试快捷方式匹配
+    const data = this.ctx.i18n
+      ?.find?.('commands.(name).shortcuts.(variant)', target)
+      ?.map(item => ({ ...item, command: $.resolve(item.data.name, session) }))
+      ?.filter(item => item.command?.match(session)) || []
+    const perfect = data.filter(item => item.similarity === 1)
+    return perfect.length ? perfect[0].command : (data.length ? data : null)
+  }
+
+  /**
+   * 提取命令数据
+   * @param command 命令对象
+   * @param session 会话对象
+   */
+  private async extractCommandData(command: any, session: any): Promise<CommandData | null> {
+    if (!command || !session) return null
     try {
-      const getText = (key: string, def = "") =>
-        session.text([`commands.${cmd.name}.${key}`, def], cmd.params || {})
+      const getText = (path: string | string[], params = {}) => session?.text ? session.text(path, params) : ''
+      const cleanText = (textData: any): string => {
+        if (typeof textData === 'string') return textData
+        if (Array.isArray(textData)) return textData.map(item => typeof item === 'string' ? item : item?.attrs?.content || '').filter(Boolean).join(' ').trim()
+        return ''
+      }
+      const commandDescription = getText([`commands.${command.name}.description`, ''], command.config?.params || {})
+      const commandUsage = command._usage
+        ? (typeof command._usage === 'string' ? command._usage : await command._usage(session))
+        : getText([`commands.${command.name}.usage`, ''], command.config?.params || {})
       // 提取选项
-      const opts: CommandOption[] = []
-      if (cmd._options) {
-        Object.values(cmd._options).forEach((opt: any) => {
-          if (!opt || typeof opt !== 'object') return
-          const addOption = (o: any, name: string) => {
-            if (!o) return
-            const desc = session.text(
-              o.descPath ?? [`commands.${cmd.name}.options.${name}`, ""],
-              o.params || {}
-            )
-            if (desc || o.syntax) opts.push({name, description: desc, syntax: o.syntax})
-          }
-          if (!('value' in opt)) addOption(opt, opt.name)
-          if (opt.variants) for (const val in opt.variants) addOption(opt.variants[val], `${opt.name}.${val}`)
-        })
-      }
-      // 提取示例
-      let examples = Array.isArray(cmd._examples) && cmd._examples.length
-        ? [...cmd._examples]
-        : (getText('examples') || "").split("\n").filter(line => line.trim() !== "")
+      const optionsList: CmdOption[] = []
+      Object.values(command._options || {}).forEach((optionConfig: any) => {
+        const addOption = (option: any, optionName: string) => {
+          if (!option || (session.resolve && session.resolve(option.hidden))) return
+          const description = getText(option.descPath ?? [`commands.${command.name}.options.${optionName}`, ''], option.params || {})
+          if (description || option.syntax) optionsList.push({ name: optionName, description, syntax: option.syntax || '' })
+        }
+        if (!('value' in optionConfig)) addOption(optionConfig, optionConfig.name)
+        if (optionConfig.variants) for (const variantKey in optionConfig.variants) addOption(optionConfig.variants[variantKey], `${optionConfig.name}.${variantKey}`)
+      })
+      const commandExamples = command._examples?.length
+        ? [...command._examples]
+        : getText([`commands.${command.name}.examples`, ''], command.config?.params || {})
+            .split('\n').filter(line => line.trim())
       // 提取子命令
-      const subCommands = cmd.children?.length
-        ? (await Promise.all(cmd.children.map((sub: any) => this.extractCmdInfo(sub, session))))
-            .filter(Boolean)
+      const subCommandsData = command.children?.length
+        ? await Promise.all(
+            command.children
+              .filter((subCommand: any) => subCommand.ctx.filter(session))
+              .map((subCommand: any) => this.extractCommandData(subCommand, session))
+          )
         : []
-      const result = {
-        name: cmd.name, description: this.simplifyText(getText('description')),
-        usage: this.simplifyText(cmd._usage
-          ? (typeof cmd._usage === "string" ? cmd._usage : await cmd._usage(session))
-          : getText('usage')),
-        options: opts, examples, subCommands: subCommands.length ? subCommands : undefined
+      return {
+        name: command.name, description: cleanText(commandDescription), usage: cleanText(commandUsage),
+        options: optionsList, examples: commandExamples,
+        subCommands: subCommandsData.filter(Boolean).length ? subCommandsData.filter(Boolean) : undefined,
       }
-      // 简化选项描述
-      result.options.forEach(opt => { if (Array.isArray(opt.description)) opt.description = this.simplifyText(opt.description) })
-      return result
-    } catch (error) {
-      logger.error(`提取命令 ${cmd?.name || '未知'} 失败:`, error)
+    } catch (err) {
+      logger.error(`提取失败 ${command?.name || '未知'}:`, err)
       return null
     }
-  }
-
-  /**
-   * 简化文本数据，处理富文本数组和嵌套对象
-   * @param data - 要简化的文本数据
-   * @returns 简化后的文本
-   * @private
-   */
-  private simplifyText(data: any): any {
-    if (typeof data === 'string') return data;
-    if (Array.isArray(data)) {
-      // 检查是否为富文本数组
-      if (data.some(item => item?.attrs?.content)) {
-        return data
-          .map(item => item?.attrs?.content || (typeof item === 'string' ? item : ''))
-          .filter(Boolean).join(' ').trim();
-      }
-      // 处理普通数组
-      data.forEach(item => { if (item && typeof item === 'object') this.simplifyText(item); });
-    } else if (data && typeof data === 'object') {
-      // 处理特定字段
-      ['description', 'usage'].forEach(field => {
-        if (field in data && Array.isArray(data[field])) data[field] = this.simplifyText(data[field]);
-      });
-      // 处理子命令
-      if (data.subCommands?.length) data.subCommands.forEach(cmd => this.simplifyText(cmd));
-    }
-    return data;
   }
 }
