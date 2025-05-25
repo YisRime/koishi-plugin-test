@@ -159,10 +159,8 @@ export class ThemeManager {
       }
     }
 
-    // 对于自定义主题，检查文件是否存在
-    if (!this.fileManager.exists('theme', themeName)) {
-      await this.createSampleTheme(themeName)
-    }
+    // 对于自定义主题，确保文件存在
+    await this.fileManager.ensureThemeExists(themeName)
 
     const customTheme = await this.fileManager.load<ThemeConfig>('theme', themeName)
     if (customTheme) {
@@ -172,24 +170,6 @@ export class ThemeManager {
 
     logger.debug(`使用默认主题配置: ${themeName}`)
     return defaultTheme
-  }
-
-  /**
-   * 创建主题样本
-   * @param themeName 主题名称
-   */
-  private async createSampleTheme(themeName: string): Promise<boolean> {
-    const sampleTheme: ThemeConfig = {
-      width: 480, style: 'light', roundness: 'medium',
-      backgroundImage: '', backgroundOverlay: 'rgba(0, 0, 0, 0.1)',
-      headerShow: true, headerLogo: '',
-      footerShow: true, footerText: 'Custom Theme',
-      customColors: { primary: '#2563eb', background: '#ffffff', text: '#1e293b' }
-    }
-
-    const success = await this.fileManager!.save('theme', themeName, sampleTheme)
-    if (success) logger.debug(`创建主题样本: ${themeName}`)
-    return success
   }
 
   /**
