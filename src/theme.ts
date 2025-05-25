@@ -2,9 +2,12 @@ import { logger } from './index'
 
 export interface ThemeConfig {
   themePreset: 'light' | 'dark' | 'glass' | 'custom'
-  width?: number
+  outerPadding?: number
+  innerPadding?: number
   backgroundImage?: string
   roundness?: number
+  fontFamily?: string
+  fontUrl?: string
   headerText?: string
   footerText?: string
   primaryColor?: string
@@ -35,9 +38,13 @@ interface ThemeStyle {
 }
 
 export interface ComputedTheme extends ThemeStyle {
-  width: number
+  outerPadding: number
+  innerPadding: number
   backgroundImage: string
+  backgroundImagePath?: string
   borderRadius: string
+  fontFamily: string
+  fontUrl?: string
   header: {
     show: boolean
     text: string
@@ -134,16 +141,15 @@ export class ThemeManager {
   /**
    * 获取计算后的主题配置
    * @param config 主题配置
+   * @param fileManager 文件管理器
    */
-  getComputedTheme(config: ThemeConfig): ComputedTheme {
+  async getComputedTheme(config: ThemeConfig, fileManager?: any): Promise<ComputedTheme> {
     const preset = config.themePreset || 'light'
-
-    // 获取预设样式作为基础
     const baseStyle = this.presetStyles[preset === 'custom' ? 'light' : preset]
 
     logger.debug(`使用主题: ${preset}`)
 
-    // 构建自定义颜色，用户配置覆盖预设
+    // 构建自定义颜色
     const customColors: Record<string, string> = { ...baseStyle.colors }
     if (config.primaryColor) customColors.primary = config.primaryColor
     if (config.backgroundColor) customColors.background = config.backgroundColor
@@ -160,15 +166,40 @@ export class ThemeManager {
       text: config.footerText?.trim() || ''
     }
 
-    // 处理圆角
-    const borderRadius = config.roundness !== undefined ? `${config.roundness}px` : '12px'
+    // 处理背景图片
+    let backgroundImage = ''
+    let backgroundImagePath = ''
+    if (config.backgroundImage) {
+      if (config.backgroundImage.startsWith('http')) {
+        backgroundImage = config.backgroundImage
+      } else if (fileManager && await fileManager.load('asset', config.backgroundImage)) {
+        const assetPath = fileManager.getFilePath('asset', config.backgroundImage)
+        backgroundImagePath = assetPath
+        backgroundImage = `file://${assetPath}`
+      }
+    }
 
-    // 所有主题都支持配置覆盖
+    // 处理字体
+    let fontFamily = config.fontFamily || baseStyle.typography.fontFamily
+    let fontUrl = ''
+    if (config.fontUrl) {
+      if (config.fontUrl.startsWith('http')) {
+        fontUrl = config.fontUrl
+      } else if (fileManager && await fileManager.load('asset', config.fontUrl)) {
+        const assetPath = fileManager.getFilePath('asset', config.fontUrl)
+        fontUrl = `file://${assetPath}`
+      }
+    }
+
     return {
       ...baseStyle,
-      width: config.width ?? 480,
-      backgroundImage: config.backgroundImage ?? '',
-      borderRadius,
+      outerPadding: config.outerPadding ?? 20,
+      innerPadding: config.innerPadding ?? 12,
+      backgroundImage,
+      backgroundImagePath,
+      borderRadius: config.roundness !== undefined ? `${config.roundness}px` : '12px',
+      fontFamily,
+      fontUrl,
       header,
       footer,
       colors: customColors
@@ -184,6 +215,8 @@ export class ThemeManager {
       `background-image: url('${theme.backgroundImage}'); background-size: cover; background-position: center; background-repeat: no-repeat;` :
       `background: ${theme.colors.background};`
 
+    const fontImport = theme.fontUrl ? `@import url('${theme.fontUrl}');` : ''
+
     const glassEffect = theme.name === '毛玻璃风格' ? `
       .container { backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
       .grid-item, .header, .footer { backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
@@ -192,31 +225,36 @@ export class ThemeManager {
     return `
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap');
       @import url('https://fonts.googleapis.com/icon?family=Material+Icons+Round');
+      ${fontImport}
 
       * { box-sizing: border-box; margin: 0; padding: 0; }
-      body { font-family: ${theme.typography.fontFamily}; font-size: ${theme.typography.fontSize}px;
+      body { font-family: ${theme.fontFamily}; font-size: ${theme.typography.fontSize}px;
              line-height: ${theme.typography.lineHeight}; color: ${theme.colors.text}; ${backgroundStyles}
-             -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+             -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+             padding: ${theme.outerPadding}px; }
 
-      .container { width: ${theme.width}px; padding: ${theme.spacing.containerPadding}; position: relative;
-                  border-radius: ${theme.borderRadius}; background: ${theme.colors.surface};
-                  box-shadow: ${theme.effects.shadow}; }
+      .container { max-width: fit-content; min-width: 320px; padding: ${theme.spacing.containerPadding};
+                  position: relative; border-radius: ${theme.borderRadius}; background: ${theme.colors.surface};
+                  box-shadow: ${theme.effects.shadow}; margin: 0 auto; }
       ${glassEffect}
 
-      .header, .footer { border-radius: ${theme.borderRadius}; margin-bottom: ${theme.spacing.itemSpacing}px;
-                        display: flex; align-items: center; position: relative; z-index: 1; width: 100%; }
+      .header, .footer { border-radius: ${theme.borderRadius}; position: relative; z-index: 1; width: 100%; }
 
       .header { background: ${theme.colors.surface}; color: ${theme.colors.text}; padding: ${theme.spacing.itemPadding};
                border: ${theme.effects.borderStyle} ${theme.colors.border}; box-shadow: ${theme.effects.shadow};
                background: linear-gradient(135deg, ${theme.colors.surface}, ${theme.colors.background});
-               text-align: center; justify-content: center; font-weight: 600; }
+               text-align: center; justify-content: center; font-weight: 600; display: flex; align-items: center;
+               margin-bottom: ${theme.innerPadding}px; }
 
       .grid-container { display: grid; width: 100%; gap: ${theme.spacing.itemSpacing}px; position: relative; z-index: 1;
-                       grid-template-rows: repeat(var(--grid-rows), auto); grid-template-columns: repeat(var(--grid-cols), 1fr); }
+                       grid-template-rows: repeat(var(--grid-rows), auto); grid-template-columns: repeat(var(--grid-cols), 1fr);
+                       margin-bottom: ${theme.innerPadding}px; }
+      .grid-container:last-child { margin-bottom: 0; }
 
       .grid-item { background: ${theme.colors.surface}; padding: ${theme.spacing.itemPadding}; border-radius: ${theme.borderRadius};
                   border: ${theme.effects.borderStyle} ${theme.colors.border}; box-shadow: ${theme.effects.shadow};
-                  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); position: relative; overflow: hidden; }
+                  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); position: relative; overflow: hidden;
+                  min-width: 200px; }
       .grid-item:hover { transform: ${theme.effects.hoverTransform};
                         box-shadow: 0 12px 32px ${theme.colors.shadow}, 0 4px 16px ${theme.colors.shadow}; }
 
@@ -232,9 +270,10 @@ export class ThemeManager {
                         font-size: 0.7em; font-weight: 700; box-shadow: ${theme.effects.shadow};
                         letter-spacing: 0.5px; }
 
-      .footer { margin-top: ${theme.spacing.itemSpacing}px; text-align: center; background: ${theme.colors.surface};
+      .footer { text-align: center; background: ${theme.colors.surface};
                color: ${theme.colors.textSecondary}; font-size: 13px; justify-content: center; padding: 16px;
-               border: ${theme.effects.borderStyle} ${theme.colors.border}; opacity: 0.7; font-weight: 500; }
+               border: ${theme.effects.borderStyle} ${theme.colors.border}; opacity: 0.7; font-weight: 500;
+               display: flex; align-items: center; }
 
       .grid-item.subCommand::before, .grid-item.option::before {
         content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;

@@ -12,11 +12,13 @@ export class FileManager {
   private readonly dataDirectory: string
   private readonly commandsDirectory: string
   private readonly templatesDirectory: string
+  private readonly assetsDirectory: string
 
   constructor(baseDir: string) {
     this.dataDirectory = join(baseDir, 'data/test')
     this.commandsDirectory = join(this.dataDirectory, 'commands')
     this.templatesDirectory = join(this.dataDirectory, 'templates')
+    this.assetsDirectory = join(this.dataDirectory, 'assets')
   }
 
   /**
@@ -25,7 +27,7 @@ export class FileManager {
    * @param identifier 标识符
    * @param locale 语言环境
    */
-  private getFilePath(type: 'command' | 'layout' | 'template', identifier: string, locale?: string): string {
+  private getFilePath(type: 'command' | 'layout' | 'template' | 'asset', identifier: string, locale?: string): string {
     switch (type) {
       case 'command':
         if (identifier === 'commands') {
@@ -40,6 +42,8 @@ export class FileManager {
       case 'template':
         const extension = identifier.includes('css') ? '.css' : '.html'
         return join(this.templatesDirectory, `${identifier}${extension}`)
+      case 'asset':
+        return join(this.assetsDirectory, identifier)
     }
   }
 
@@ -50,10 +54,10 @@ export class FileManager {
    * @param data 数据
    * @param locale 语言环境
    */
-  async save<T>(type: 'command' | 'layout' | 'template', identifier: string, data: T, locale?: string): Promise<boolean> {
+  async save<T>(type: 'command' | 'layout' | 'template' | 'asset', identifier: string, data: T, locale?: string): Promise<boolean> {
     const filePath = this.getFilePath(type, identifier, locale)
     await promises.mkdir(dirname(filePath), { recursive: true })
-    const content = type === 'template' ? String(data) : JSON.stringify(data, null, 2)
+    const content = (type === 'template' || type === 'asset') ? String(data) : JSON.stringify(data, null, 2)
     await promises.writeFile(filePath, content, 'utf8')
     return true
   }
@@ -64,29 +68,26 @@ export class FileManager {
    * @param identifier 标识符
    * @param locale 语言环境
    */
-  async load<T>(type: 'command' | 'layout' | 'template', identifier: string, locale?: string): Promise<T | null> {
+  async load<T>(type: 'command' | 'layout' | 'template' | 'asset', identifier: string, locale?: string): Promise<T | null> {
     const filePath = this.getFilePath(type, identifier, locale)
     try {
       const content = await promises.readFile(filePath, 'utf8')
-      return type === 'template' ? content as T : JSON.parse(content) as T
+      return (type === 'template' || type === 'asset') ? content as T : JSON.parse(content) as T
     } catch {
       return null
     }
   }
 
   /**
-   * 确保模板文件存在，如果不存在则创建默认模板
+   * 加载模板文件，不存在时创建默认内容
    * @param templateType 模板类型
    * @param defaultContent 默认内容
    */
-  async ensureTemplateExists(templateType: 'css' | 'html', defaultContent: string): Promise<boolean> {
-    const filePath = this.getFilePath('template', templateType)
-    try {
-      await promises.access(filePath)
-      return true
-    } catch {
-      return await this.save('template', templateType, defaultContent)
-    }
+  async loadTemplate(templateType: 'css' | 'html', defaultContent: string): Promise<string> {
+    const content = await this.load<string>('template', templateType)
+    if (content !== null) return content
+    await this.save('template', templateType, defaultContent)
+    return defaultContent
   }
 }
 
@@ -122,8 +123,8 @@ export class MenuRender {
    */
   private async generateHtmlContent(layoutConfig: LayoutConfig): Promise<string> {
     const [cssContent, htmlTemplate] = await Promise.all([
-      this.getCssContent(),
-      this.getHtmlTemplate()
+      this.getTemplate('css'),
+      this.getTemplate('html')
     ])
     // 生成头部和底部HTML
     const headerHtml = this.computedTheme.header.show
@@ -157,32 +158,18 @@ export class MenuRender {
   }
 
   /**
-   * 获取CSS内容
+   * 获取模板内容
+   * @param templateType 模板类型
    */
-  private async getCssContent(): Promise<string> {
-    if (this.templateSource === 'inline') return this.themeManager.generateDefaultCssTemplate(this.computedTheme)
-    const defaultCss = this.themeManager.generateDefaultCssTemplate(this.computedTheme)
-    await this.fileManager.ensureTemplateExists('css', defaultCss)
-    let cssContent = await this.fileManager.load<string>('template', 'css')
-    if (!cssContent) {
-      cssContent = defaultCss
-      await this.fileManager.save('template', 'css', cssContent)
+  private async getTemplate(templateType: 'css' | 'html'): Promise<string> {
+    if (this.templateSource === 'inline') {
+      return templateType === 'css'
+        ? this.themeManager.generateDefaultCssTemplate(this.computedTheme)
+        : this.themeManager.generateDefaultHtmlTemplate()
     }
-    return cssContent
-  }
-
-  /**
-   * 获取HTML模板
-   */
-  private async getHtmlTemplate(): Promise<string> {
-    if (this.templateSource === 'inline') return this.themeManager.generateDefaultHtmlTemplate()
-    const defaultHtml = this.themeManager.generateDefaultHtmlTemplate()
-    await this.fileManager.ensureTemplateExists('html', defaultHtml)
-    let htmlTemplate = await this.fileManager.load<string>('template', 'html')
-    if (!htmlTemplate) {
-      htmlTemplate = defaultHtml
-      await this.fileManager.save('template', 'html', htmlTemplate)
-    }
-    return htmlTemplate
+    const defaultContent = templateType === 'css'
+      ? this.themeManager.generateDefaultCssTemplate(this.computedTheme)
+      : this.themeManager.generateDefaultHtmlTemplate()
+    return await this.fileManager.loadTemplate(templateType, defaultContent)
   }
 }

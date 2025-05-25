@@ -15,9 +15,15 @@ export interface Config {
   templateSource: 'file' | 'inline'
   // 主题配置
   themePreset: 'light' | 'dark' | 'glass' | 'custom'
-  width?: number
+  // 边距配置
+  outerPadding?: number
+  innerPadding?: number
+  // 背景和圆角
   backgroundImage?: string
   roundness?: number
+  // 字体配置
+  fontFamily?: string
+  fontUrl?: string
   // 显示配置
   headerText?: string
   footerText?: string
@@ -49,9 +55,12 @@ export const Config: Schema<Config> = Schema.intersect([
       Schema.const('glass').description('毛玻璃'),
       Schema.const('custom').description('自定义'),
     ]).default('light').description('主题预设'),
-    width: Schema.number().description('渲染宽度'),
-    backgroundImage: Schema.string().description('背景图片URL').role('link'),
+    outerPadding: Schema.number().description('外边距(px)').min(0).max(100).default(20),
+    innerPadding: Schema.number().description('内边距(px)').min(0).max(50).default(12),
+    backgroundImage: Schema.string().description('背景图片(assets目录下文件名或URL)'),
     roundness: Schema.number().description('圆角大小(px)').min(0).max(50),
+    fontFamily: Schema.string().description('字体族名称'),
+    fontUrl: Schema.string().description('字体文件(assets目录下文件名或URL)'),
     headerText: Schema.string().description('页头内容'),
     footerText: Schema.string().description('页脚内容').default('Powered by Koishi'),
     primaryColor: Schema.string().description('主色调').role('color'),
@@ -79,7 +88,7 @@ export function apply(ctx: Context, config: Config) {
     .action(async ({ session }, commandName) => {
       const userLocale = commandExtractor.getUserLocale(session)
       const [computedTheme, commandsData] = await Promise.all([
-        themeManager.getComputedTheme(config),
+        themeManager.getComputedTheme(config, fileManager),
         commandName ? getCommandData(commandName, session, userLocale) : getMainMenuData(session, userLocale)
       ])
       const layoutKey = commandName || 'main'
