@@ -27,7 +27,7 @@ export class FileManager {
    * @param identifier 标识符
    * @param locale 语言环境
    */
-  private getFilePath(type: 'command' | 'layout' | 'template' | 'asset', identifier: string, locale?: string): string {
+  getFilePath(type: 'command' | 'layout' | 'template' | 'asset', identifier: string, locale?: string): string {
     switch (type) {
       case 'command':
         if (identifier === 'commands') {
