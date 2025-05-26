@@ -1,12 +1,12 @@
-import { ThemeConfig, LayoutConfig, GridItem } from './renderer'
-import { CommandData } from './extract'
+import { Theme, Layout, Item } from './renderer'
+import { Command } from './extract'
 
 /**
- * 简洁内容管理器
+ * 内容管理器
  */
-export class ContentManager {
-  async getThemeConfig(config: any): Promise<ThemeConfig> {
-    const hexToRgb = (hex: string) => {
+export class Content {
+  async getTheme(config: any): Promise<Theme> {
+    const toRgb = (hex: string) => {
       const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
       return result ? {
         r: parseInt(result[1], 16),
@@ -15,71 +15,68 @@ export class ContentManager {
       } : { r: 0, g: 0, b: 0 };
     };
 
-    const primary = hexToRgb(config.primaryColor);
-    const text = hexToRgb(config.textColor);
+    const primary = toRgb(config.primary);
+    const text = toRgb(config.textColor);
 
-    // 自动计算次要文本色（文本色的50%透明度效果）
     const textSecondary = `rgba(${text.r}, ${text.g}, ${text.b}, 0.5)`;
-
-    // 自动计算边框色（主色调的15%透明度）
     const border = `rgba(${primary.r}, ${primary.g}, ${primary.b}, 0.15)`;
 
     return {
       colors: {
-        primary: config.primaryColor,
-        secondary: config.secondaryColor,
-        background: config.backgroundColor,
+        primary: config.primary,
+        secondary: config.secondary,
+        background: config.bgColor,
         surface: config.surfaceColor,
         text: config.textColor,
         textSecondary: textSecondary,
         border: border
       },
-      typography: {
-        fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif",
-        fontSize: config.fontSize,
-        titleFontScale: config.titleFontScale
+      font: {
+        family: "system-ui, -apple-system, 'Segoe UI', sans-serif",
+        size: config.fontSize,
+        titleScale: config.titleSize
       },
-      spacing: {
-        padding: config.innerPadding,
-        gap: Math.max(config.innerPadding * 0.75, 10)
+      space: {
+        padding: config.padding,
+        gap: Math.max(config.padding * 0.75, 10)
       },
       effects: {
-        enableGlass: false
+        glass: false
       },
-      backgroundImage: config.backgroundImage,
-      borderRadius: `${config.borderRadius}px`,
+      bgImage: config.bgImg,
+      radius: `${config.radius}px`,
       fontUrl: config.fontUrl,
       header: {
-        show: !!config.headerHtml?.trim(),
-        content: config.headerHtml?.trim()
+        show: !!config.header?.trim(),
+        content: config.header?.trim()
       },
       footer: {
-        show: !!config.footerHtml?.trim(),
-        content: config.footerHtml?.trim()
+        show: !!config.footer?.trim(),
+        content: config.footer?.trim()
       }
     }
   }
 
-  async generateLayout(commandName: string = null, commandsData: CommandData[]): Promise<LayoutConfig | null> {
-    if (!commandsData.length) return null
-    return commandName ? this.createDetailLayout(commandName, commandsData) : this.createMenuLayout(commandsData)
+  async createLayout(cmdName: string = null, commands: Command[]): Promise<Layout | null> {
+    if (!commands.length) return null
+    return cmdName ? this.buildDetail(cmdName, commands) : this.buildMenu(commands)
   }
 
   /**
-   * 创建命令详情布局
+   * 创建详情布局
    */
-  private createDetailLayout(commandName: string, data: CommandData[]): LayoutConfig | null {
-    const cmd = data.find(c => c.name === commandName) ||
-                data.flatMap(c => c.subCommands || []).find(s => s.name === commandName)
+  private buildDetail(cmdName: string, data: Command[]): Layout | null {
+    const cmd = data.find(c => c.name === cmdName) ||
+                data.flatMap(c => c.subs || []).find(s => s.name === cmdName)
     if (!cmd) return null
 
-    const items: GridItem[] = []
+    const items: Item[] = []
     let row = 1
 
-    // 命令标题
+    // 标题
     items.push({
       row: row++, col: 1, rowSpan: 1, colSpan: 1,
-      type: 'text', content: cmd.description || '无描述',
+      type: 'text', content: cmd.desc || '无描述',
       title: cmd.name, id: 'header', itemType: 'header'
     })
 
@@ -97,7 +94,7 @@ export class ContentManager {
       items.push({
         row: row++, col: 1, rowSpan: 1, colSpan: 1,
         type: 'text',
-        content: cmd.options.map(o => `${o.name} ${o.syntax || ''}\n  ${o.description || ''}`).join('\n\n'),
+        content: cmd.options.map(o => `${o.name} ${o.syntax || ''}\n  ${o.desc || ''}`).join('\n\n'),
         title: `选项参数 (${cmd.options.length})`,
         id: 'options', itemType: 'option'
       })
@@ -113,13 +110,13 @@ export class ContentManager {
     }
 
     // 子命令
-    if (cmd.subCommands?.length) {
+    if (cmd.subs?.length) {
       items.push({
         row: row++, col: 1, rowSpan: 1, colSpan: 1,
         type: 'text',
-        content: cmd.subCommands.map(s => `${s.name} - ${s.description || ''}`).join('\n'),
-        title: `子命令 (${cmd.subCommands.length})`,
-        id: 'subcommands', itemType: 'subCommand'
+        content: cmd.subs.map(s => `${s.name} - ${s.desc || ''}`).join('\n'),
+        title: `子命令 (${cmd.subs.length})`,
+        id: 'subs', itemType: 'subCommand'
       })
     }
 
@@ -127,10 +124,10 @@ export class ContentManager {
   }
 
   /**
-   * 创建命令菜单布局
+   * 创建菜单布局
    */
-  private createMenuLayout(data: CommandData[]): LayoutConfig {
-    const items: GridItem[] = []
+  private buildMenu(data: Command[]): Layout {
+    const items: Item[] = []
 
     // 标题
     items.push({
@@ -139,20 +136,20 @@ export class ContentManager {
       title: '命令菜单', id: 'title', itemType: 'title'
     })
 
-    // 命令分组
+    // 分组
     const groups = data.reduce((acc, cmd) => {
       const group = cmd.name.split('.')[0]
       if (!acc[group]) acc[group] = []
       acc[group].push(cmd)
       return acc
-    }, {} as Record<string, CommandData[]>)
+    }, {} as Record<string, Command[]>)
 
     Object.entries(groups).forEach(([name, cmds], i) => {
       items.push({
         row: Math.floor(i / 2) + 2,
         col: (i % 2) + 1,
         rowSpan: 1, colSpan: 1, type: 'text',
-        content: cmds.map(c => `${c.name}${c.description ? ` - ${c.description}` : ''}`).join('\n'),
+        content: cmds.map(c => `${c.name}${c.desc ? ` - ${c.desc}` : ''}`).join('\n'),
         title: `${name} (${cmds.length})`,
         id: `group-${name}`, itemType: 'command'
       })

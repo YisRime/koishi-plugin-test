@@ -1,7 +1,7 @@
 /**
- * 简洁主题配置接口
+ * 主题配置接口
  */
-export interface ThemeConfig {
+export interface Theme {
   colors: {
     primary: string
     secondary: string
@@ -11,30 +11,30 @@ export interface ThemeConfig {
     textSecondary: string
     border: string
   }
-  typography: {
-    fontFamily: string
-    fontSize: number
-    titleFontScale: number
+  font: {
+    family: string
+    size: number
+    titleScale: number
   }
-  spacing: {
+  space: {
     padding: number
     gap: number
   }
-  effects: { enableGlass: boolean }
-  backgroundImage: string
-  borderRadius: string
+  effects: { glass: boolean }
+  bgImage: string
+  radius: string
   fontUrl?: string
   header: { show: boolean; content: string }
   footer: { show: boolean; content: string }
 }
 
-export interface LayoutConfig {
+export interface Layout {
   rows: number
   cols: number
-  items: GridItem[]
+  items: Item[]
 }
 
-export interface GridItem {
+export interface Item {
   row: number
   col: number
   rowSpan: number
@@ -47,17 +47,17 @@ export interface GridItem {
 }
 
 /**
- * 简洁主题渲染器
+ * 主题渲染器
  */
-export class ThemeRenderer {
-  generateHtml(theme: ThemeConfig, layout: LayoutConfig): string {
-    const css = this.generateCSS(theme)
-    const body = this.generateBody(theme, layout)
+export class Render {
+  buildHtml(theme: Theme, layout: Layout): string {
+    const css = this.buildCSS(theme)
+    const body = this.buildBody(theme, layout)
     return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body>${body}</body></html>`
   }
 
-  private generateCSS(theme: ThemeConfig): string {
-    const hexToRgb = (hex: string) => {
+  private buildCSS(theme: Theme): string {
+    const toRgb = (hex: string) => {
       const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
       return result ? {
         r: parseInt(result[1], 16),
@@ -66,10 +66,10 @@ export class ThemeRenderer {
       } : { r: 0, g: 0, b: 0 };
     };
 
-    const primary = hexToRgb(theme.colors.primary);
-    const secondary = hexToRgb(theme.colors.secondary);
-    const background = hexToRgb(theme.colors.background);
-    const text = hexToRgb(theme.colors.text);
+    const primary = toRgb(theme.colors.primary);
+    const secondary = toRgb(theme.colors.secondary);
+    const background = toRgb(theme.colors.background);
+    const text = toRgb(theme.colors.text);
 
     return `
 ${theme.fontUrl ? `@import url('${theme.fontUrl}');` : ''}
@@ -82,12 +82,12 @@ ${theme.fontUrl ? `@import url('${theme.fontUrl}');` : ''}
   --text: ${theme.colors.text};
   --text-light: ${theme.colors.textSecondary};
   --border: ${theme.colors.border};
-  --radius: ${theme.borderRadius};
-  --spacing: ${theme.spacing.padding}px;
-  --gap: ${theme.spacing.gap}px;
-  --font: ${theme.typography.fontFamily};
-  --fs: ${theme.typography.fontSize}px;
-  --title-scale: ${theme.typography.titleFontScale};
+  --radius: ${theme.radius};
+  --spacing: ${theme.space.padding}px;
+  --gap: ${theme.space.gap}px;
+  --font: ${theme.font.family};
+  --fs: ${theme.font.size}px;
+  --title-scale: ${theme.font.titleScale};
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -95,8 +95,8 @@ ${theme.fontUrl ? `@import url('${theme.fontUrl}');` : ''}
 body {
   font: 400 var(--fs)/1.6 var(--font);
   color: var(--text);
-  background: ${theme.backgroundImage
-    ? `var(--bg) url('${theme.backgroundImage}') center/cover`
+  background: ${theme.bgImage
+    ? `var(--bg) url('${theme.bgImage}') center/cover`
     : `linear-gradient(135deg, rgba(${primary.r}, ${primary.g}, ${primary.b}, 0.05) 0%, rgba(${secondary.r}, ${secondary.g}, ${secondary.b}, 0.03) 50%, var(--bg) 100%)`};
   padding: calc(var(--spacing) * 2);
   min-height: 100vh;
@@ -301,12 +301,12 @@ body::before {
 `
   }
 
-  private generateBody(theme: ThemeConfig, layout: LayoutConfig): string {
+  private buildBody(theme: Theme, layout: Layout): string {
     const grid = layout.items.map(item => {
-      const title = item.title ? `<div class="grid-item-title">${this.escape(item.title)}</div>` : ''
+      const title = item.title ? `<div class="grid-item-title">${this.safeText(item.title)}</div>` : ''
       const content = item.type === 'image'
-        ? `<img src="${item.content}" alt="${this.escape(item.title)}" loading="lazy">`
-        : `<div class="grid-item-content">${this.escape(item.content)}</div>`
+        ? `<img src="${item.content}" alt="${this.safeText(item.title)}" loading="lazy">`
+        : `<div class="grid-item-content">${this.safeText(item.content)}</div>`
 
       return `<div class="grid-item ${item.itemType}" style="grid-column:${item.col}/span ${item.colSpan};grid-row:${item.row}/span ${item.rowSpan}">${title}${content}</div>`
     }).join('')
@@ -318,7 +318,7 @@ body::before {
     </div>`
   }
 
-  private escape(str: string): string {
+  private safeText(str: string): string {
     return String(str || '').replace(/[&<>"']/g, m => ({ '&': '&lt;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m])
   }
 }

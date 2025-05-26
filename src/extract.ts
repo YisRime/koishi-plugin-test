@@ -2,111 +2,79 @@ import { Context } from 'koishi'
 
 /**
  * 命令选项接口
- * 定义命令选项的基本结构
  */
-interface CmdOption {
-  /** 选项名称 */
+interface Option {
   name: string
-  /** 选项描述 */
-  description: string
-  /** 选项语法 */
+  desc: string
   syntax: string
 }
 
 /**
  * 命令数据接口
- * 定义完整命令信息的数据结构
  */
-export interface CommandData {
-  /** 命令名称 */
+export interface Command {
   name: string
-  /** 命令描述 */
-  description: string
-  /** 使用方法 */
+  desc: string
   usage: string
-  /** 命令选项数组 */
-  options: CmdOption[]
-  /** 使用示例数组 */
+  options: Option[]
   examples: string[]
-  /** 子命令数组 (可选) */
-  subCommands?: CommandData[]
+  subs?: Command[]
 }
 
 /**
- * 命令提取器类
- * 负责从Koishi上下文中提取和处理命令信息
+ * 命令提取器
  */
-export class CommandExtractor {
-  /**
-   * 创建命令提取器实例
-   * @param ctx - Koishi上下文对象
-   */
+export class Extract {
   constructor(private readonly ctx: Context) {}
 
   /**
-   * 获取用户的语言环境偏好
-   * @param session - 会话对象
-   * @returns string 用户语言环境标识符
+   * 获取用户语言
    */
-  getUserLocale(session: any): string {
+  getLocale(session: any): string {
     const locales = [...(session?.locales || []), ...(session?.channel?.locales || []), ...(session?.guild?.locales || []), ...(session?.user?.locales || [])]
     return this.ctx.i18n?.fallback(locales)?.[0] || ''
   }
 
   /**
-   * 提取所有可用的内联命令
-   * @param session - 会话对象
-   * @param userLocale - 用户语言环境 (可选)
-   * @returns Promise<CommandData[]> 命令数据数组
+   * 获取所有命令
    */
-  async extractInlineCommands(session: any, userLocale = ''): Promise<CommandData[]> {
-    if (userLocale) session.locales = [userLocale, ...(session.locales || [])]
+  async getAll(session: any, locale = ''): Promise<Command[]> {
+    if (locale) session.locales = [locale, ...(session.locales || [])]
     const commands = await Promise.all(
       this.ctx.$commander._commandList
         .filter(cmd => !cmd.parent && cmd.ctx.filter(session))
-        .map(cmd => this.extractCommandData(cmd, session))
+        .map(cmd => this.buildData(cmd, session))
     )
     return commands.filter(Boolean).sort((a, b) => a.name.localeCompare(b.name))
   }
 
   /**
-   * 按需提取单个命令的详细信息
-   * @param session - 会话对象
-   * @param commandName - 目标命令名称
-   * @param userLocale - 用户语言环境 (可选)
-   * @returns Promise<CommandData | null> 命令数据对象或null
+   * 获取单个命令
    */
-  async extractSingleCommand(session: any, commandName: string, userLocale = ''): Promise<CommandData | null> {
-    if (userLocale) session.locales = [userLocale, ...(session.locales || [])]
-    const command = this.findCommand(commandName, session)
-    return command && !Array.isArray(command) ? await this.extractCommandData(command, session) : null
+  async getSingle(session: any, cmdName: string, locale = ''): Promise<Command | null> {
+    if (locale) session.locales = [locale, ...(session.locales || [])]
+    const command = this.findCmd(cmdName, session)
+    return command && !Array.isArray(command) ? await this.buildData(command, session) : null
   }
 
   /**
-   * 获取与指定命令相关的命令列表
-   * @param session - 会话对象
-   * @param commandName - 目标命令名称
-   * @param userLocale - 用户语言环境 (可选)
-   * @returns Promise<CommandData[]> 相关命令数据数组
+   * 获取相关命令
    */
-  async extractRelatedCommands(session: any, commandName: string, userLocale = ''): Promise<CommandData[]> {
-    const target = await this.extractSingleCommand(session, commandName, userLocale)
+  async getRelated(session: any, cmdName: string, locale = ''): Promise<Command[]> {
+    const target = await this.getSingle(session, cmdName, locale)
     if (!target) return []
     const commands = [target]
-    if (commandName.includes('.')) {
-      const parent = await this.extractSingleCommand(session, commandName.split('.')[0], userLocale)
+    if (cmdName.includes('.')) {
+      const parent = await this.getSingle(session, cmdName.split('.')[0], locale)
       if (parent && !commands.some(cmd => cmd.name === parent.name)) commands.unshift(parent)
     }
     return commands
   }
 
   /**
-   * 在命令系统中查找指定的命令
-   * @param target - 目标命令名称
-   * @param session - 会话对象
-   * @returns 找到的命令对象或命令数组，未找到则返回null
+   * 查找命令
    */
-  private findCommand(target: string, session: any) {
+  private findCmd(target: string, session: any) {
     const $ = this.ctx.$commander
     const command = $.resolve(target, session)
     if (command?.ctx.filter(session)) return command
@@ -116,36 +84,33 @@ export class CommandExtractor {
   }
 
   /**
-   * 提取单个命令的完整数据信息
-   * @param command - Koishi命令对象
-   * @param session - 会话对象
-   * @returns Promise<CommandData | null> 提取的命令数据或null
+   * 构建命令数据
    */
-  private async extractCommandData(command: any, session: any): Promise<CommandData | null> {
+  private async buildData(command: any, session: any): Promise<Command | null> {
     const getText = (path: string | string[], params = {}) => session?.text?.(path, params) || ''
     const clean = (data: any): string => {
       if (typeof data === 'string') return data
       if (Array.isArray(data)) return data.map(item => typeof item === 'string' ? item : item?.attrs?.content || '').filter(Boolean).join(' ').trim()
       return ''
     }
-    const description = getText([`commands.${command.name}.description`, ''], command.config?.params || {})
+    const desc = getText([`commands.${command.name}.description`, ''], command.config?.params || {})
     const usage = command._usage ? (typeof command._usage === 'string' ? command._usage : await command._usage(session)) : getText([`commands.${command.name}.usage`, ''], command.config?.params || {})
-    const options: CmdOption[] = []
+    const options: Option[] = []
     Object.values(command._options || {}).forEach((opt: any) => {
       const add = (option: any, name: string) => {
         if (option && !(session.resolve?.(option.hidden))) {
           const desc = getText(option.descPath ?? [`commands.${command.name}.options.${name}`, ''], option.params || {})
-          if (desc || option.syntax) options.push({ name, description: desc, syntax: option.syntax || '' })
+          if (desc || option.syntax) options.push({ name, desc: desc, syntax: option.syntax || '' })
         }
       }
       if (!('value' in opt)) add(opt, opt.name)
       if (opt.variants) Object.keys(opt.variants).forEach(key => add(opt.variants[key], `${opt.name}.${key}`))
     })
     const examples = command._examples?.length ? [...command._examples] : getText([`commands.${command.name}.examples`, ''], command.config?.params || {}).split('\n').filter(line => line.trim())
-    const subCommands = command.children?.length ? (await Promise.all(command.children.filter((sub: any) => sub.ctx.filter(session)).map((sub: any) => this.extractCommandData(sub, session)))).filter(Boolean) : []
+    const subs = command.children?.length ? (await Promise.all(command.children.filter((sub: any) => sub.ctx.filter(session)).map((sub: any) => this.buildData(sub, session)))).filter(Boolean) : []
     return {
-      name: command.name, description: clean(description), usage: clean(usage), options,
-      examples, subCommands: subCommands.length ? subCommands : undefined
+      name: command.name, desc: clean(desc), usage: clean(usage), options,
+      examples, subs: subs.length ? subs : undefined
     }
   }
 }
