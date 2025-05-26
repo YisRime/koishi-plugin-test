@@ -23,6 +23,81 @@ interface Command {
 }
 
 /**
+ * 创建布局
+ */
+export async function createLayout(cmdName: string = null, commands: Command[]): Promise<Layout | null> {
+  if (!commands.length) return null
+  return cmdName ? buildDetail(cmdName, commands) : buildMenu(commands)
+}
+
+/**
+ * 创建详情布局
+ */
+function buildDetail(cmdName: string, data: Command[]): Layout | null {
+  const cmd = data.find(c => c.name === cmdName) ||
+              data.flatMap(c => c.subs || []).find(s => s.name === cmdName)
+  if (!cmd) return null
+  const items: Item[] = []
+  let row = 1
+  const addItem = (content: string, title: string, id: string, itemType: any) => {
+    if (content?.trim()) {
+      items.push({
+        row: row++, col: 1, rowSpan: 1, colSpan: 1,
+        type: 'text', content, title, id, itemType
+      })
+    }
+  }
+  // 标题
+  addItem(cmd.desc || '无描述', cmd.name, 'header', 'header')
+  // 用法
+  addItem(cmd.usage, '使用方法', 'usage', 'command')
+  // 选项
+  if (cmd.options?.length) {
+    const optionsText = cmd.options.map(o => `${o.name} ${o.syntax || ''}\n  ${o.desc || ''}`).join('\n\n')
+    addItem(optionsText, `选项参数 (${cmd.options.length})`, 'options', 'option')
+  }
+  // 示例
+  if (cmd.examples?.length) addItem(cmd.examples.join('\n'), '使用示例', 'examples', 'command')
+  // 子命令
+  if (cmd.subs?.length) {
+    const subsText = cmd.subs.map(s => `${s.name} - ${s.desc || ''}`).join('\n')
+    addItem(subsText, `子命令 (${cmd.subs.length})`, 'subs', 'subCommand')
+  }
+  return { rows: row - 1, cols: 1, items }
+}
+
+/**
+ * 创建菜单布局
+ */
+function buildMenu(data: Command[]): Layout {
+  const items: Item[] = [{
+    row: 1, col: 1, rowSpan: 1, colSpan: 2,
+    type: 'text', content: '选择命令查看详细信息',
+    title: '命令菜单', id: 'title', itemType: 'header'
+  }]
+  // 按第一段分组并生成项目
+  const groups = Object.entries(
+    data.reduce((acc, cmd) => {
+      const group = cmd.name.split('.')[0]
+      if (!acc[group]) acc[group] = []
+      acc[group].push(cmd)
+      return acc
+    }, {} as Record<string, Command[]>)
+  )
+  groups.forEach(([name, cmds], i) => {
+    items.push({
+      row: Math.floor(i / 2) + 2,
+      col: (i % 2) + 1,
+      rowSpan: 1, colSpan: 1, type: 'text',
+      content: cmds.map(c => `${c.name}${c.desc ? ` - ${c.desc}` : ''}`).join('\n'),
+      title: `${name} (${cmds.length})`,
+      id: `group-${name}`, itemType: 'command'
+    })
+  })
+  return { rows: Math.ceil(groups.length / 2) + 1, cols: 2, items }
+}
+
+/**
  * 命令提取器
  */
 export class Extract {
@@ -113,113 +188,5 @@ export class Extract {
       name: command.name, desc: clean(desc), usage: clean(usage), options,
       examples, subs: subs.length ? subs : undefined
     }
-  }
-}
-
-/**
- * 创建布局
- */
-export async function createLayout(cmdName: string = null, commands: Command[]): Promise<Layout | null> {
-  if (!commands.length) return null
-  return cmdName ? buildCommandLayout(cmdName, commands) : buildMainLayout(commands)
-}
-
-/**
- * 创建命令详情布局
- */
-function buildCommandLayout(cmdName: string, commands: Command[]): Layout | null {
-  const cmd = commands.find(c => c.name === cmdName) ||
-              commands.flatMap(c => c.subs || []).find(s => s.name === cmdName)
-  if (!cmd) return null
-
-  const items: Item[] = []
-  let row = 1
-
-  // 命令标题和描述
-  items.push({
-    row: row++, col: 1, rowSpan: 1, colSpan: 1,
-    type: 'text', content: cmd.desc || '无描述',
-    title: cmd.name, id: 'header', itemType: 'header'
-  })
-
-  // 使用方法
-  if (cmd.usage) {
-    items.push({
-      row: row++, col: 1, rowSpan: 1, colSpan: 1,
-      type: 'text', content: cmd.usage,
-      title: '使用方法', id: 'usage', itemType: 'command'
-    })
-  }
-
-  // 选项参数
-  if (cmd.options?.length) {
-    items.push({
-      row: row++, col: 1, rowSpan: 1, colSpan: 1,
-      type: 'text',
-      content: cmd.options.map(o => `${o.name} ${o.syntax || ''}\n  ${o.desc || ''}`).join('\n\n'),
-      title: `选项参数 (${cmd.options.length})`,
-      id: 'options', itemType: 'option'
-    })
-  }
-
-  // 使用示例
-  if (cmd.examples?.length) {
-    items.push({
-      row: row++, col: 1, rowSpan: 1, colSpan: 1,
-      type: 'text', content: cmd.examples.join('\n'),
-      title: '使用示例', id: 'examples', itemType: 'command'
-    })
-  }
-
-  // 子命令列表
-  if (cmd.subs?.length) {
-    items.push({
-      row: row++, col: 1, rowSpan: 1, colSpan: 1,
-      type: 'text',
-      content: cmd.subs.map(s => `${s.name} - ${s.desc || ''}`).join('\n'),
-      title: `子命令 (${cmd.subs.length})`,
-      id: 'subs', itemType: 'subCommand'
-    })
-  }
-
-  return { rows: row - 1, cols: 1, items }
-}
-
-/**
- * 创建主菜单布局
- */
-function buildMainLayout(commands: Command[]): Layout {
-  const items: Item[] = []
-
-  // 主菜单标题
-  items.push({
-    row: 1, col: 1, rowSpan: 1, colSpan: 2,
-    type: 'text', content: '选择命令查看详细信息',
-    title: '命令菜单', id: 'title', itemType: 'header'
-  })
-
-  // 按命令组分组显示
-  const commandGroups = commands.reduce((groups, cmd) => {
-    const groupName = cmd.name.split('.')[0]
-    if (!groups[groupName]) groups[groupName] = []
-    groups[groupName].push(cmd)
-    return groups
-  }, {} as Record<string, Command[]>)
-
-  Object.entries(commandGroups).forEach(([groupName, groupCommands], index) => {
-    items.push({
-      row: Math.floor(index / 2) + 2,
-      col: (index % 2) + 1,
-      rowSpan: 1, colSpan: 1, type: 'text',
-      content: groupCommands.map(c => `${c.name}${c.desc ? ` - ${c.desc}` : ''}`).join('\n'),
-      title: `${groupName} (${groupCommands.length})`,
-      id: `group-${groupName}`, itemType: 'command'
-    })
-  })
-
-  return {
-    rows: Math.ceil(Object.keys(commandGroups).length / 2) + 1,
-    cols: 2,
-    items
   }
 }
