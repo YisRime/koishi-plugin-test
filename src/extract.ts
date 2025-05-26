@@ -1,4 +1,5 @@
 import { Context } from 'koishi'
+import { Layout, Item } from './render'
 
 /**
  * 命令选项接口
@@ -112,5 +113,113 @@ export class Extract {
       name: command.name, desc: clean(desc), usage: clean(usage), options,
       examples, subs: subs.length ? subs : undefined
     }
+  }
+}
+
+/**
+ * 创建布局
+ */
+export async function createLayout(cmdName: string = null, commands: Command[]): Promise<Layout | null> {
+  if (!commands.length) return null
+  return cmdName ? buildDetail(cmdName, commands) : buildMenu(commands)
+}
+
+/**
+ * 创建详情布局
+ */
+function buildDetail(cmdName: string, data: Command[]): Layout | null {
+  const cmd = data.find(c => c.name === cmdName) ||
+              data.flatMap(c => c.subs || []).find(s => s.name === cmdName)
+  if (!cmd) return null
+
+  const items: Item[] = []
+  let row = 1
+
+  // 标题
+  items.push({
+    row: row++, col: 1, rowSpan: 1, colSpan: 1,
+    type: 'text', content: cmd.desc || '无描述',
+    title: cmd.name, id: 'header', itemType: 'header'
+  })
+
+  // 用法
+  if (cmd.usage) {
+    items.push({
+      row: row++, col: 1, rowSpan: 1, colSpan: 1,
+      type: 'text', content: cmd.usage,
+      title: '使用方法', id: 'usage', itemType: 'command'
+    })
+  }
+
+  // 选项
+  if (cmd.options?.length) {
+    items.push({
+      row: row++, col: 1, rowSpan: 1, colSpan: 1,
+      type: 'text',
+      content: cmd.options.map(o => `${o.name} ${o.syntax || ''}\n  ${o.desc || ''}`).join('\n\n'),
+      title: `选项参数 (${cmd.options.length})`,
+      id: 'options', itemType: 'option'
+    })
+  }
+
+  // 示例
+  if (cmd.examples?.length) {
+    items.push({
+      row: row++, col: 1, rowSpan: 1, colSpan: 1,
+      type: 'text', content: cmd.examples.join('\n'),
+      title: '使用示例', id: 'examples', itemType: 'command'
+    })
+  }
+
+  // 子命令
+  if (cmd.subs?.length) {
+    items.push({
+      row: row++, col: 1, rowSpan: 1, colSpan: 1,
+      type: 'text',
+      content: cmd.subs.map(s => `${s.name} - ${s.desc || ''}`).join('\n'),
+      title: `子命令 (${cmd.subs.length})`,
+      id: 'subs', itemType: 'subCommand'
+    })
+  }
+
+  return { rows: row - 1, cols: 1, items }
+}
+
+/**
+ * 创建菜单布局
+ */
+function buildMenu(data: Command[]): Layout {
+  const items: Item[] = []
+
+  // 标题改为header类型
+  items.push({
+    row: 1, col: 1, rowSpan: 1, colSpan: 2,
+    type: 'text', content: '选择命令查看详细信息',
+    title: '命令菜单', id: 'title', itemType: 'header'
+  })
+
+  // 分组
+  const groups = data.reduce((acc, cmd) => {
+    const group = cmd.name.split('.')[0]
+    if (!acc[group]) acc[group] = []
+    acc[group].push(cmd)
+    return acc
+  }, {} as Record<string, Command[]>)
+
+  Object.entries(groups).forEach(([name, cmds], i) => {
+    items.push({
+      row: Math.floor(i / 2) + 2,
+      col: (i % 2) + 1,
+      rowSpan: 1, colSpan: 1, type: 'text',
+      content: cmds.map(c => `${c.name}${c.desc ? ` - ${c.desc}` : ''}`).join('\n'),
+      title: `${name} (${cmds.length})`,
+      id: `group-${name}`, itemType: 'command'
+    })
+  })
+
+  return {
+    rows: Math.ceil(Object.keys(groups).length / 2) + 1,
+    cols: 2,
+    items
   }
 }

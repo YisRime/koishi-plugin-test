@@ -1,5 +1,6 @@
 import { dirname, join } from 'path'
 import { promises } from 'fs'
+import { createLayout } from './extract'
 
 /**
  * 文件管理器类
@@ -64,8 +65,7 @@ export class FileStore {
 export class DataStore {
   constructor(
     private readonly files: FileStore,
-    private readonly extract: any,
-    private readonly content: any
+    private readonly extract: any
   ) {}
 
   /**
@@ -94,7 +94,7 @@ export class DataStore {
     const key = cmdName ? cmdName : 'main'
     let layout = await this.files.read('layout', key)
     if (!layout) {
-      layout = await this.content.createLayout(cmdName, commands)
+      layout = await createLayout(cmdName, commands)
       if (layout) await this.files.write('layout', key, layout)
     }
     return layout

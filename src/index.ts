@@ -1,9 +1,8 @@
 import { Context, Schema, Logger, h } from 'koishi'
 import {} from 'koishi-plugin-puppeteer'
-import { Extract } from './extract'
+import { Extract, createLayout } from './extract'
 import { FileStore, DataStore } from './utils'
-import { Render, Layout } from './renderer'
-import { Content } from './content'
+import { Render, Layout } from './render'
 
 export const name = 'test'
 export const inject = ['puppeteer']
@@ -93,9 +92,8 @@ export const Config: Schema<Config> = Schema.intersect([
 export function apply(ctx: Context, config: Config) {
   const files = new FileStore(ctx.baseDir)
   const render = new Render()
-  const content = new Content()
   const extract = new Extract(ctx)
-  const data = new DataStore(files, extract, content)
+  const data = new DataStore(files, extract)
 
   /**
    * 渲染HTML为图像
@@ -114,20 +112,19 @@ export function apply(ctx: Context, config: Config) {
     .action(async ({ session }, cmdName) => {
       try {
         const locale = extract.getLocale(session)
-        // 并行加载配置和数据
-        const [theme, commands] = await Promise.all([
-          content.getTheme(config),
-          config.cmdSrc === 'inline'
-            ? (cmdName ? extract.getRelated(session, cmdName, locale) : extract.getAll(session, locale))
-            : data.getCommands(cmdName, session, locale)
-        ])
+        // 获取命令数据
+        const commands = config.cmdSrc === 'inline'
+          ? (cmdName ? await extract.getRelated(session, cmdName, locale) : await extract.getAll(session, locale))
+          : await data.getCommands(cmdName, session, locale)
+
         // 获取布局
         const layout = config.layoutSrc === 'inline'
-          ? await content.createLayout(cmdName, commands)
+          ? await createLayout(cmdName, commands)
           : await data.getLayout(cmdName, commands)
         if (!layout) return cmdName ? `找不到命令 ${cmdName}` : '无可用命令'
+
         // 渲染
-        const html = render.buildHtml(theme, layout as Layout)
+        const html = render.buildHtml(config, layout as Layout)
         const buffer = await toImage(html)
         return h.image(buffer, 'image/png')
       } catch (error) {
