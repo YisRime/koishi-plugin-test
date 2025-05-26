@@ -1,6 +1,7 @@
 import { Context, Schema, Logger, h } from 'koishi'
+import {} from 'koishi-plugin-puppeteer'
 import { CommandExtractor } from './extract'
-import { FileManager, renderMenuToImage } from './utils'
+import { FileManager, DataService } from './utils'
 import { ThemeRenderer, LayoutConfig } from './renderer'
 import { ContentManager } from './content'
 
@@ -10,6 +11,7 @@ export const logger = new Logger('test')
 
 /**
  * 插件配置接口
+ * 定义所有可配置的插件选项
  */
 export interface Config {
   /** 命令数据源类型 */
@@ -97,29 +99,29 @@ export const Config: Schema<Config> = Schema.intersect([
   }).description('主题预设'),
 
   Schema.object({
-    outerPadding: Schema.number().description('外边距(px)').min(0).max(100).default(20),
-    innerPadding: Schema.number().description('内边距(px)').min(0).max(50).default(12),
-    itemPadding: Schema.number().description('项目内边距(px)').min(8).max(32).default(16),
-    itemSpacing: Schema.number().description('项目间距(px)').min(4).max(24).default(12),
-    containerPadding: Schema.number().description('容器内边距(px)').min(12).max(40).default(20),
+    outerPadding: Schema.number().description('外边距(px)').min(0).max(100).default(12),
+    innerPadding: Schema.number().description('内边距(px)').min(0).max(50).default(8),
+    itemPadding: Schema.number().description('项目内边距(px)').min(8).max(32).default(12),
+    itemSpacing: Schema.number().description('项目间距(px)').min(4).max(24).default(8),
+    containerPadding: Schema.number().description('容器内边距(px)').min(12).max(40).default(16),
   }).description('间距配置'),
 
   Schema.object({
     backgroundImage: Schema.string().description('背景图片(assets目录下文件名或URL)'),
-    roundness: Schema.number().description('圆角大小(px)').min(0).max(50).default(12),
+    roundness: Schema.number().description('圆角大小(px)').min(0).max(50).default(8),
     shadowBlur: Schema.number().description('阴影模糊(px)').min(0).max(50).default(8),
     shadowSpread: Schema.number().description('阴影扩散(px)').min(0).max(20).default(2),
-    backdropBlur: Schema.number().description('背景模糊(px)').min(0).max(50).default(20),
+    backdropBlur: Schema.number().description('背景模糊(px)').min(0).max(50).default(16),
     enableGlassEffect: Schema.boolean().description('启用毛玻璃效果').default(false),
   }).description('视觉效果'),
 
   Schema.object({
-    fontFamily: Schema.string().description('字体族名称'),
+    fontFamily: Schema.string().description('字体族名称').default("'Inter', 'Noto Sans SC', system-ui, sans-serif"),
     fontUrl: Schema.string().description('字体文件(assets目录下文件名或URL)'),
-    fontSize: Schema.number().description('字体大小(px)').min(10).max(24).default(16),
-    titleSize: Schema.number().description('标题倍数').min(1).max(3).step(0.1).default(1.2),
+    fontSize: Schema.number().description('字体大小(px)').min(10).max(24).default(13),
+    titleSize: Schema.number().description('标题倍数').min(1).max(3).step(0.1).default(1.1),
     titleWeight: Schema.string().description('标题字重').default('600'),
-    lineHeight: Schema.number().description('行高倍数').min(1).max(3).step(0.1).default(1.5),
+    lineHeight: Schema.number().description('行高倍数').min(1).max(3).step(0.1).default(1.4),
   }).description('字体配置'),
 
   Schema.object({
@@ -141,75 +143,35 @@ export const Config: Schema<Config> = Schema.intersect([
 ])
 
 /**
- * 插件主函数 - 初始化命令菜单插件
- * @param ctx Koishi上下文对象
- * @param config 插件配置对象
+ * 插件主函数
+ * 初始化命令菜单插件并注册相关服务
+ * @param ctx - Koishi上下文对象
+ * @param config - 插件配置对象
  */
 export function apply(ctx: Context, config: Config) {
   const fileManager = new FileManager(ctx.baseDir)
   const renderer = new ThemeRenderer()
   const contentManager = new ContentManager()
   const extractor = new CommandExtractor(ctx)
+  const dataService = new DataService(fileManager, extractor, contentManager)
 
   /**
-   * 数据加载服务 - 封装命令和布局数据的加载逻辑
+   * 将HTML内容渲染为图像
+   * @param html - 要渲染的HTML字符串
+   * @returns Promise<Buffer> 渲染后的图像缓冲区
    */
-  const dataService = {
-    /**
-     * 加载命令数据
-     * @param commandName 命令名称，为null时加载所有命令
-     * @param session 会话对象
-     * @param locale 语言环境
-     * @returns 命令数据数组
-     */
-    async loadCommands(commandName: string, session: any, locale: string) {
-      const key = commandName || 'commands'
-      let data = await fileManager.load<any>('command', key, locale)
-
-      if (!data) {
-        if (commandName) {
-          const all = await fileManager.load<any[]>('command', 'commands', locale)
-          data = all?.find(c => c.name === commandName) || all?.flatMap(c => c.subCommands || []).find(s => s.name === commandName) || await extractor.extractSingleCommand(session, commandName, locale)
-          if (data) await fileManager.save('command', commandName, data, locale)
-        } else {
-          data = await extractor.extractInlineCommands(session, locale)
-          await fileManager.save('command', 'commands', data, locale)
-        }
-      }
-      return Array.isArray(data) ? data : data ? [data] : []
-    },
-
-    /**
-     * 加载布局数据
-     * @param commandName 命令名称，为null时加载主布局
-     * @param commandsData 命令数据数组
-     * @returns 布局配置对象
-     */
-    async loadLayout(commandName: string, commandsData: any[]) {
-      const key = commandName || 'main'
-      let layout = await fileManager.load('layout', key)
-      if (!layout) {
-        layout = await contentManager.generateLayout(commandName, commandsData)
-        if (layout) await fileManager.save('layout', key, layout)
-      }
-      return layout
-    }
+  const renderMenuToImage = async (html: string): Promise<Buffer> => {
+    const page = await ctx.puppeteer.page()
+    await page.setContent(html)
+    const element = await page.$('.container')
+    return await element.screenshot({ type: 'png', omitBackground: true }) as Buffer
   }
 
-  /**
-   * 渲染服务 - 处理完整的渲染流程
-   */
-  const renderService = {
-    /**
-     * 渲染菜单图像
-     * @param commandName 命令名称（可选）
-     * @param session 会话对象
-     * @returns 渲染结果或错误信息
-     */
-    async renderMenu(commandName: string, session: any) {
+  // 注册menu命令
+  ctx.command('menu [commandName:string]', '显示指令帮助')
+    .action(async ({ session }, commandName) => {
       try {
         const locale = extractor.getUserLocale(session)
-
         // 并行加载主题配置和命令数据
         const [themeConfig, commandsData] = await Promise.all([
           contentManager.getThemeConfig(config, fileManager),
@@ -217,30 +179,18 @@ export function apply(ctx: Context, config: Config) {
             ? (commandName ? extractor.extractRelatedCommands(session, commandName, locale) : extractor.extractInlineCommands(session, locale))
             : dataService.loadCommands(commandName, session, locale)
         ])
-
         // 获取布局配置
         const layoutConfig = config.layoutSource === 'inline'
           ? await contentManager.generateLayout(commandName, commandsData)
           : await dataService.loadLayout(commandName, commandsData)
-
-        if (!layoutConfig) {
-          return commandName ? `找不到命令 ${commandName}` : '无可用命令'
-        }
-
+        if (!layoutConfig) return commandName ? `找不到命令 ${commandName}` : '无可用命令'
         // 生成HTML并渲染为图像
         const html = renderer.generateHtml(themeConfig, layoutConfig as LayoutConfig)
-        const buffer = await renderMenuToImage(ctx, html)
+        const buffer = await renderMenuToImage(html)
         return h.image(buffer, 'image/png')
       } catch (error) {
         logger.error('渲染失败:', error)
         return '渲染菜单时发生错误'
       }
-    }
-  }
-
-  // 注册menu命令
-  ctx.command('menu [commandName:string]', '显示指令帮助')
-    .action(async ({ session }, commandName) => {
-      return await renderService.renderMenu(commandName, session)
     })
 }
