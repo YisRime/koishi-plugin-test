@@ -115,7 +115,6 @@ export class ContentManager {
     if (asset.startsWith('http')) return { url: asset }
 
     if (fileManager && await fileManager.exists('asset', asset)) {
-      // 直接构造文件路径，不使用已删除的getFilePath方法
       const path = `${fileManager['dataDir']}/assets/${asset.replace(/\./g, '_')}`
       return { url: `file://${path}` }
     }
@@ -137,11 +136,11 @@ export class ContentManager {
     let row = 1
 
     // 命令标题
-    items.push(this.createGridItem(cmd.name, cmd.description || '无描述信息', 'terminal', 'header', row++, `sec-${cmd.name}`))
+    items.push(this.createGridItem(cmd.name, cmd.description || '无描述信息', 'header', row++, `sec-${cmd.name}`))
 
     // 用法说明
     if (cmd.usage) {
-      items.push(this.createGridItem('使用方法', cmd.usage, 'description', 'command', row++, 'sec-usage'))
+      items.push(this.createGridItem('使用方法', cmd.usage, 'command', row++, 'sec-usage'))
     }
 
     // 选项参数
@@ -152,12 +151,12 @@ export class ContentManager {
         if (o.description) parts.push(`\n  ${o.description}`)
         return parts.join(' ')
       }).join('\n\n')
-      items.push(this.createGridItem('可用选项', optionsText, 'tune', 'option', row++, 'sec-options', cmd.options.length))
+      items.push(this.createGridItem('可用选项', optionsText, 'option', row++, 'sec-options', cmd.options.length))
     }
 
     // 使用示例
     if (cmd.examples.length) {
-      items.push(this.createGridItem('使用示例', cmd.examples.join('\n'), 'code', 'command', row++, 'sec-examples'))
+      items.push(this.createGridItem('使用示例', cmd.examples.join('\n'), 'command', row++, 'sec-examples'))
     }
 
     // 子命令
@@ -165,7 +164,7 @@ export class ContentManager {
       const subCommandsText = cmd.subCommands.map(s =>
         `${s.name}${s.description ? ` - ${s.description}` : ''}`
       ).join('\n')
-      items.push(this.createGridItem('子命令', subCommandsText, 'account_tree', 'subCommand', row++, 'sec-subcommands', cmd.subCommands.length))
+      items.push(this.createGridItem('子命令', subCommandsText, 'subCommand', row++, 'sec-subcommands', cmd.subCommands.length))
     }
 
     return { rows: row - 1, cols: 1, items }
@@ -189,8 +188,6 @@ export class ContentManager {
         row: 1, col: 1, rowSpan: 1, colSpan: 2, type: 'text',
         content: '选择命令查看详细信息和使用方法',
         title: '📋 命令菜单',
-        icon: 'menu_book',
-        iconType: 'material',
         id: 'sec-title',
         itemType: 'title'
       }
@@ -209,8 +206,6 @@ export class ContentManager {
         type: 'text',
         content: commandsText,
         title: name,
-        icon: 'code',
-        iconType: 'material',
         badge: cmds.length.toString(),
         id: `cmd-${name}`,
         itemType: 'command'
@@ -224,14 +219,13 @@ export class ContentManager {
    * 创建网格项目
    * @param title - 项目标题
    * @param content - 项目内容
-   * @param icon - 图标名称
    * @param itemType - 项目类型
    * @param row - 行位置
    * @param id - 项目ID
    * @param badge - 徽章数字 (可选)
    * @returns GridItem 网格项目对象
    */
-  private createGridItem(title: string, content: string, icon: string, itemType: string, row: number, id: string, badge?: number): GridItem {
-    return { row, col: 1, rowSpan: 1, colSpan: 1, type: 'text', content, title, icon, iconType: 'material', id, itemType, ...(badge && { badge }) } as GridItem
+  private createGridItem(title: string, content: string, itemType: string, row: number, id: string, badge?: number): GridItem {
+    return { row, col: 1, rowSpan: 1, colSpan: 1, type: 'text', content, title, id, itemType, ...(badge && { badge }) } as GridItem
   }
 }
