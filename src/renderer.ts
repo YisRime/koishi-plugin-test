@@ -1,592 +1,324 @@
 /**
- * 主题配置接口
- * 定义了渲染器所需的所有主题相关配置选项
+ * 简洁主题配置接口
  */
 export interface ThemeConfig {
-  /** 颜色配置 */
-  colors: Record<string, string>
-  /** 字体排版配置 */
-  typography: { fontFamily: string; fontSize: number; titleSize: number; titleWeight: string; lineHeight: number }
-  /** 间距配置 */
-  spacing: { itemPadding: string; itemSpacing: number; containerPadding: string }
-  /** 视觉效果配置 */
-  effects: { shadow: string; backdropBlur: number; enableGlass: boolean }
-  /** 外边距 */
-  outerPadding: number
-  /** 内边距 */
-  innerPadding: number
-  /** 背景图片URL */
+  colors: {
+    primary: string
+    secondary: string
+    background: string
+    surface: string
+    text: string
+    textSecondary: string
+    border: string
+  }
+  typography: {
+    fontFamily: string
+    fontSize: number
+    titleFontScale: number
+  }
+  spacing: {
+    padding: number
+    gap: number
+  }
+  effects: { enableGlass: boolean }
   backgroundImage: string
-  /** 边框圆角 */
   borderRadius: string
-  /** 字体URL */
   fontUrl?: string
-  /** 页头配置 */
-  header: { show: boolean; text: string }
-  /** 页脚配置 */
-  footer: { show: boolean; text: string }
+  header: { show: boolean; content: string }
+  footer: { show: boolean; content: string }
 }
 
-/**
- * 布局配置接口
- * 定义网格布局的基本结构
- */
 export interface LayoutConfig {
-  /** 网格行数 */
   rows: number
-  /** 网格列数 */
   cols: number
-  /** 网格项目数组 */
   items: GridItem[]
 }
 
-/**
- * 网格项目接口
- * 定义单个网格项的所有属性
- */
 export interface GridItem {
-  /** 行位置 */
   row: number
-  /** 列位置 */
   col: number
-  /** 行跨度 */
   rowSpan: number
-  /** 列跨度 */
   colSpan: number
-  /** 内容类型 */
   type: 'text' | 'image'
-  /** 项目内容 */
   content: string
-  /** 项目标题 */
   title: string
-  /** 徽章内容 */
-  badge?: string | number
-  /** 项目ID */
   id: string
-  /** 项目类型 */
   itemType: 'command' | 'subCommand' | 'option' | 'title' | 'header'
 }
 
 /**
- * 主题渲染器类
- * 负责将主题配置和布局配置转换为HTML和CSS
+ * 简洁主题渲染器
  */
 export class ThemeRenderer {
-  /**
-   * 生成完整的HTML文档
-   * @param theme - 主题配置对象
-   * @param layout - 布局配置对象
-   * @returns 完整的HTML字符串
-   */
   generateHtml(theme: ThemeConfig, layout: LayoutConfig): string {
-    const css = this.generateModernCSS(theme)
+    const css = this.generateCSS(theme)
     const body = this.generateBody(theme, layout)
-
-    return `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="color-scheme" content="light dark">
-  <style>${css}</style>
-</head>
-<body>${body}</body>
-</html>`
+    return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body>${body}</body></html>`
   }
 
-  /**
-   * 生成现代化的CSS样式系统
-   * @param theme - 主题配置
-   * @returns 完整的现代CSS字符串
-   */
-  private generateModernCSS(theme: ThemeConfig): string {
-    const primaryRgb = this.hexToRgb(theme.colors.primary)
-    const accentRgb = this.hexToRgb(theme.colors.accent)
-    const secondaryRgb = this.hexToRgb(theme.colors.secondary)
-    const surfaceRgb = this.hexToRgb(theme.colors.surface)
-    const backgroundRgb = this.hexToRgb(theme.colors.background)
+  private generateCSS(theme: ThemeConfig): string {
+    const hexToRgb = (hex: string) => {
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+      } : { r: 0, g: 0, b: 0 };
+    };
 
-    return `/* === 字体导入 === */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700;800&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');${theme.fontUrl ? `\n@import url('${theme.fontUrl}');` : ''}
+    const primary = hexToRgb(theme.colors.primary);
+    const secondary = hexToRgb(theme.colors.secondary);
+    const background = hexToRgb(theme.colors.background);
+    const text = hexToRgb(theme.colors.text);
 
-/* === CSS自定义属性系统 === */
+    return `
+${theme.fontUrl ? `@import url('${theme.fontUrl}');` : ''}
+
 :root {
-  /* 颜色系统 */
-  --color-primary: ${theme.colors.primary};
-  --color-primary-rgb: ${primaryRgb};
-  --color-accent: ${theme.colors.accent};
-  --color-accent-rgb: ${accentRgb};
-  --color-secondary: ${theme.colors.secondary};
-  --color-secondary-rgb: ${secondaryRgb};
-  --color-surface: ${theme.colors.surface};
-  --color-surface-rgb: ${surfaceRgb};
-  --color-background: ${theme.colors.background};
-  --color-background-rgb: ${backgroundRgb};
-  --color-text: ${theme.colors.text};
-  --color-text-secondary: ${theme.colors.textSecondary};
-  --color-border: ${theme.colors.border};
-  --color-shadow: ${theme.colors.shadow};
-
-  /* 色彩变体 */
-  --color-primary-light: rgba(var(--color-primary-rgb), 0.1);
-  --color-primary-lighter: rgba(var(--color-primary-rgb), 0.05);
-  --color-accent-light: rgba(var(--color-accent-rgb), 0.1);
-  --color-secondary-light: rgba(var(--color-secondary-rgb), 0.1);
-  --color-surface-elevated: rgba(var(--color-surface-rgb), 0.8);
-
-  /* 几何系统 */
-  --radius-xs: calc(${theme.borderRadius} * 0.5);
-  --radius-sm: ${theme.borderRadius};
-  --radius-md: calc(${theme.borderRadius} * 1.5);
-  --radius-lg: calc(${theme.borderRadius} * 2);
-  --radius-xl: calc(${theme.borderRadius} * 3);
-
-  /* 间距系统 */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 20px;
-  --space-6: 24px;
-  --space-8: 32px;
-  --space-10: 40px;
-  --space-12: 48px;
-
-  /* 字体系统 */
-  --font-family-base: ${theme.typography.fontFamily};
-  --font-family-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
-  --font-size-xs: ${Math.max(theme.typography.fontSize - 2, 10)}px;
-  --font-size-sm: ${theme.typography.fontSize - 1}px;
-  --font-size-base: ${theme.typography.fontSize}px;
-  --font-size-lg: ${theme.typography.fontSize + 2}px;
-  --font-size-xl: ${Math.floor(theme.typography.fontSize * theme.typography.titleSize)}px;
-  --font-size-2xl: ${Math.floor(theme.typography.fontSize * theme.typography.titleSize * 1.2)}px;
-  --font-weight-normal: 400;
-  --font-weight-medium: 500;
-  --font-weight-semibold: 600;
-  --font-weight-bold: 700;
-  --line-height-tight: 1.25;
-  --line-height-base: ${theme.typography.lineHeight};
-  --line-height-relaxed: 1.6;
-
-  /* 阴影系统 */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-  --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-  --shadow-glow: 0 0 20px rgba(var(--color-primary-rgb), 0.15);
-
-  /* 布局系统 */
-  --grid-cols: ${this.getGridCols()};
-  --container-max-width: 600px;
-  --container-padding: ${theme.spacing.containerPadding};
-  --item-padding: ${theme.spacing.itemPadding};
-  --item-spacing: ${theme.spacing.itemSpacing}px;
-
-  /* 毛玻璃效果 */
-  --backdrop-blur: ${theme.effects.backdropBlur}px;
-  --glass-bg: rgba(255, 255, 255, 0.08);
-  --glass-border: rgba(255, 255, 255, 0.12);
+  --primary: ${theme.colors.primary};
+  --secondary: ${theme.colors.secondary};
+  --bg: ${theme.colors.background};
+  --surface: ${theme.colors.surface};
+  --text: ${theme.colors.text};
+  --text-light: ${theme.colors.textSecondary};
+  --border: ${theme.colors.border};
+  --radius: ${theme.borderRadius};
+  --spacing: ${theme.spacing.padding}px;
+  --gap: ${theme.spacing.gap}px;
+  --font: ${theme.typography.fontFamily};
+  --fs: ${theme.typography.fontSize}px;
+  --title-scale: ${theme.typography.titleFontScale};
 }
 
-/* === 全局重置与基础样式 === */
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
-html {
-  font-size: 16px;
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
-}
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-  font-family: var(--font-family-base);
-  font-size: var(--font-size-base);
-  line-height: var(--line-height-base);
-  color: var(--color-text);
-  background: ${this.generateBackgroundStyle(theme)};
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  font: 400 var(--fs)/1.6 var(--font);
+  color: var(--text);
+  background: ${theme.backgroundImage
+    ? `var(--bg) url('${theme.backgroundImage}') center/cover`
+    : `linear-gradient(135deg, rgba(${primary.r}, ${primary.g}, ${primary.b}, 0.05) 0%, rgba(${secondary.r}, ${secondary.g}, ${secondary.b}, 0.03) 50%, var(--bg) 100%)`};
+  padding: calc(var(--spacing) * 2);
   min-height: 100vh;
-  padding: ${theme.outerPadding}px;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  overflow-x: hidden;
-}
-
-/* === 容器系统 === */
-.container {
-  width: 100%;
-  max-width: var(--container-max-width);
-  min-width: 320px;
-  padding: var(--container-padding);
-  border-radius: var(--radius-lg);
-  background: ${theme.effects.enableGlass ? 'var(--glass-bg)' : 'rgba(var(--color-surface-rgb), 0.95)'};
-  border: 1px solid ${theme.effects.enableGlass ? 'var(--glass-border)' : 'rgba(var(--color-border), 0.5)'};
-  box-shadow: var(--shadow-2xl), var(--shadow-glow);
   position: relative;
-  ${theme.effects.enableGlass ? `backdrop-filter: blur(var(--backdrop-blur)); -webkit-backdrop-filter: blur(var(--backdrop-blur));` : ''}
 }
 
-.container::before {
+body::before {
   content: '';
   position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg,
-    rgba(var(--color-primary-rgb), 0.02) 0%,
-    rgba(var(--color-accent-rgb), 0.01) 50%,
-    rgba(var(--color-secondary-rgb), 0.02) 100%);
-  border-radius: inherit;
-  pointer-events: none;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background:
+    radial-gradient(circle at 25% 25%, rgba(${primary.r}, ${primary.g}, ${primary.b}, 0.04) 0%, transparent 50%),
+    radial-gradient(circle at 75% 75%, rgba(${secondary.r}, ${secondary.g}, ${secondary.b}, 0.03) 0%, transparent 50%);
   z-index: -1;
+  pointer-events: none;
 }
 
-/* === 网格布局系统 === */
+.container {
+  width: 100%;
+  max-width: 520px;
+  background: rgba(255, 255, 255, 0.98);
+  border-radius: calc(var(--radius) * 1.5);
+  overflow: hidden;
+  box-shadow:
+    0 20px 40px rgba(0, 0, 0, 0.04),
+    0 8px 20px rgba(${primary.r}, ${primary.g}, ${primary.b}, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  border: 1px solid var(--border);
+  position: relative;
+}
+
+.header {
+  background: linear-gradient(135deg, rgba(${primary.r}, ${primary.g}, ${primary.b}, 0.8) 0%, rgba(${secondary.r}, ${secondary.g}, ${secondary.b}, 0.8) 100%);
+  color: white;
+  padding: calc(var(--spacing) * 1.5);
+  text-align: center;
+  font-weight: 600;
+  font-size: calc(var(--fs) * var(--title-scale));
+  position: relative;
+  box-shadow: 0 4px 12px rgba(${primary.r}, ${primary.g}, ${primary.b}, 0.08);
+}
+
+.header::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60px;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 1px;
+}
+
 .grid-container {
   display: grid;
-  grid-template-columns: repeat(var(--grid-cols), 1fr);
-  gap: var(--item-spacing);
-  margin-bottom: var(--space-4);
+  grid-template-columns: repeat(var(--grid-cols, 1), 1fr);
+  gap: var(--gap);
+  padding: var(--gap);
+  background: linear-gradient(135deg, rgba(${background.r}, ${background.g}, ${background.b}, 0.3) 0%, rgba(255, 255, 255, 0.9) 100%);
+  position: relative;
+}
+
+.grid-item {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: var(--radius);
+  padding: var(--spacing);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.02),
+    0 2px 6px rgba(${primary.r}, ${primary.g}, ${primary.b}, 0.03);
   position: relative;
   z-index: 1;
-}
-
-.grid-container:last-child {
-  margin-bottom: 0;
-}
-
-/* === 页头样式 === */
-.header {
-  background: linear-gradient(135deg,
-    rgba(var(--color-primary-rgb), 0.1),
-    rgba(var(--color-accent-rgb), 0.05));
-  color: var(--color-text);
-  padding: var(--space-5);
-  text-align: center;
-  border: 1px solid rgba(var(--color-primary-rgb), 0.2);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md),
-              inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  font-weight: var(--font-weight-semibold);
-  font-size: var(--font-size-lg);
-  margin-bottom: var(--space-4);
-  position: relative;
   overflow: hidden;
-  ${theme.effects.enableGlass ? `backdrop-filter: blur(calc(var(--backdrop-blur) * 0.5));` : ''}
-}
-
-/* === 页脚样式 === */
-.footer {
-  background: rgba(var(--color-surface-rgb), 0.6);
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  padding: var(--space-3);
-  border: 1px solid rgba(var(--color-border), 0.3);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-sm);
-  text-align: center;
-  margin-top: var(--space-4);
-  ${theme.effects.enableGlass ? `backdrop-filter: blur(calc(var(--backdrop-blur) * 0.3));` : ''}
-}
-
-/* === 网格项目样式 === */
-.grid-item {
-  background: linear-gradient(135deg,
-    rgba(255, 255, 255, 0.1),
-    rgba(255, 255, 255, 0.05));
-  padding: var(--item-padding);
-  border-radius: var(--radius-md);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: var(--shadow-lg),
-              inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  position: relative;
-  min-height: 80px;
-  overflow: visible;
-  ${theme.effects.enableGlass ? `backdrop-filter: blur(calc(var(--backdrop-blur) * 0.7));` : ''}
 }
 
 .grid-item::before {
   content: '';
   position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg,
-    rgba(var(--color-primary-rgb), 0.02),
-    rgba(var(--color-accent-rgb), 0.01));
-  border-radius: inherit;
-  opacity: 0;
-  pointer-events: none;
-}
-
-/* === 网格项目内容 === */
-.grid-item-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--space-2);
-  min-height: 24px;
+  top: 0;
+  left: 0;
+  width: 6px;
+  height: 100%;
+  background: linear-gradient(180deg, rgba(${primary.r}, ${primary.g}, ${primary.b}, 0.6) 0%, rgba(${secondary.r}, ${secondary.g}, ${secondary.b}, 0.6) 100%);
+  opacity: 0.6;
 }
 
 .grid-item-title {
-  font-weight: var(--font-weight-semibold);
-  font-size: var(--font-size-xl);
-  margin: 0;
-  color: var(--color-primary);
-  letter-spacing: -0.025em;
-  line-height: var(--line-height-tight);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  font-weight: 600;
+  font-size: calc(var(--fs) * 1.15);
+  color: var(--text);
+  margin-bottom: calc(var(--spacing) * 0.5);
+  background: linear-gradient(90deg, var(--primary), var(--secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .grid-item-content {
-  line-height: var(--line-height-base);
-  color: var(--color-text-secondary);
+  color: var(--text-light);
   white-space: pre-wrap;
-  font-size: var(--font-size-sm);
-  word-break: break-word;
-  font-weight: var(--font-weight-normal);
-  opacity: 0.9;
-}
-
-.grid-item-badge {
-  position: absolute;
-  top: -8px;
-  right: -8px;
-  background: linear-gradient(135deg,
-    var(--color-accent),
-    rgba(var(--color-accent-rgb), 0.8));
-  color: white;
-  border-radius: 12px;
-  padding: 4px 8px;
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-bold);
-  box-shadow: var(--shadow-lg),
-              0 4px 12px rgba(var(--color-accent-rgb), 0.4);
-  letter-spacing: 0.5px;
-  min-width: 20px;
-  text-align: center;
-  line-height: 1;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  z-index: 10;
-  white-space: nowrap;
-}
-
-/* === 项目类型样式 === */
-.grid-item.subCommand::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 20%;
-  bottom: 20%;
-  width: 4px;
-  background: linear-gradient(180deg,
-    rgba(var(--color-secondary-rgb), 0.8),
-    rgba(var(--color-primary-rgb), 0.6));
-  border-radius: 0 2px 2px 0;
-  box-shadow: 0 0 8px rgba(var(--color-secondary-rgb), 0.4);
-}
-
-.grid-item.option::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 20%;
-  bottom: 20%;
-  width: 4px;
-  background: linear-gradient(180deg,
-    rgba(var(--color-accent-rgb), 0.8),
-    rgba(var(--color-secondary-rgb), 0.6));
-  border-radius: 0 2px 2px 0;
-  box-shadow: 0 0 8px rgba(var(--color-accent-rgb), 0.4);
+  line-height: 1.6;
 }
 
 .grid-item.title {
-  background: linear-gradient(135deg,
-    rgba(var(--color-primary-rgb), 0.12),
-    rgba(var(--color-secondary-rgb), 0.08));
-  border: 1px solid rgba(var(--color-primary-rgb), 0.3);
+  background: linear-gradient(135deg, rgba(${primary.r}, ${primary.g}, ${primary.b}, 0.8) 0%, rgba(${secondary.r}, ${secondary.g}, ${secondary.b}, 0.8) 100%);
+  color: white;
+  grid-column: 1 / -1;
+  text-align: center;
+  border: none;
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.06),
+    0 4px 12px rgba(${primary.r}, ${primary.g}, ${primary.b}, 0.12);
+}
+
+.grid-item.title::before {
+  display: none;
 }
 
 .grid-item.title .grid-item-title {
-  font-size: var(--font-size-2xl);
-  justify-content: center;
-  font-weight: var(--font-weight-bold);
-  letter-spacing: -0.04em;
-  color: var(--color-primary);
-}
-
-.grid-item.command {
-  background: linear-gradient(135deg,
-    rgba(255, 255, 255, 0.12),
-    rgba(255, 255, 255, 0.06));
-  border-color: rgba(var(--color-primary-rgb), 0.25);
+  color: white;
+  font-size: calc(var(--fs) * var(--title-scale) * 1.1);
+  -webkit-text-fill-color: white;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .grid-item.header {
-  background: linear-gradient(135deg,
-    rgba(var(--color-primary-rgb), 0.15),
-    rgba(var(--color-accent-rgb), 0.1));
-  border: 1px solid rgba(var(--color-primary-rgb), 0.35);
+  background: linear-gradient(135deg, rgba(${secondary.r}, ${secondary.g}, ${secondary.b}, 0.7) 0%, rgba(${primary.r}, ${primary.g}, ${primary.b}, 0.7) 100%);
+  color: white;
+  border: none;
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.04),
+    0 3px 8px rgba(${secondary.r}, ${secondary.g}, ${secondary.b}, 0.08);
 }
 
-/* === 响应式设计 === */
-@media (max-width: 768px) {
-  :root {
-    --container-max-width: 100%;
-    --grid-cols: 1;
-  }
+.grid-item.header::before {
+  background: rgba(255, 255, 255, 0.2);
+}
 
-  body {
-    padding: var(--space-2);
-  }
+.grid-item.header .grid-item-title,
+.grid-item.header .grid-item-content {
+  color: white;
+  -webkit-text-fill-color: white;
+}
 
-  .container {
-    min-width: 280px;
-    padding: var(--space-4);
-    border-radius: var(--radius-md);
-  }
+.grid-item.option {
+  border: 2px dashed var(--border);
+  background: linear-gradient(145deg, rgba(${primary.r}, ${primary.g}, ${primary.b}, 0.02) 0%, rgba(255, 255, 255, 0.98) 100%);
+}
 
-  .grid-container {
-    gap: var(--space-2);
-  }
+.grid-item.option::before {
+  background: linear-gradient(180deg, rgba(${primary.r}, ${primary.g}, ${primary.b}, 0.3) 0%, rgba(${secondary.r}, ${secondary.g}, ${secondary.b}, 0.3) 100%);
+}
 
-  .grid-item {
-    padding: var(--space-3);
-    min-height: 60px;
-  }
+.grid-item.subCommand {
+  background: linear-gradient(145deg, rgba(${secondary.r}, ${secondary.g}, ${secondary.b}, 0.03) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border-color: rgba(${secondary.r}, ${secondary.g}, ${secondary.b}, 0.15);
+}
 
-  .grid-item-title {
-    font-size: var(--font-size-lg);
-  }
+.grid-item.subCommand::before {
+  background: rgba(${secondary.r}, ${secondary.g}, ${secondary.b}, 0.6);
+}
 
-  .grid-item-content {
-    font-size: var(--font-size-xs);
-  }
+.footer {
+  background: linear-gradient(135deg, rgba(${background.r}, ${background.g}, ${background.b}, 0.6) 0%, rgba(255, 255, 255, 0.95) 100%);
+  color: var(--text-light);
+  padding: calc(var(--spacing) * 0.8);
+  text-align: center;
+  font-size: calc(var(--fs) * 0.85);
+  border-top: 1px solid var(--border);
+  position: relative;
+}
 
-  .header, .footer {
-    padding: var(--space-3);
-  }
+.footer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(${primary.r}, ${primary.g}, ${primary.b}, 0.3), transparent);
+  opacity: 0.4;
 }
 
 @media (max-width: 480px) {
   body {
-    padding: var(--space-1);
+    padding: var(--spacing);
   }
-
   .container {
-    padding: var(--space-3);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius);
+    max-width: 100%;
   }
-
-  .grid-item {
-    padding: var(--space-2);
-  }
-
-  .grid-item-badge {
-    top: -6px;
-    right: -6px;
-    padding: 2px 6px;
-  }
+  .grid-container { grid-template-columns: 1fr !important; }
 }
-
-/* === 打印样式 === */
-@media print {
-  body {
-    background: white !important;
-    color: black !important;
+`
   }
 
-  .container {
-    background: white !重要;
-    border: 1px solid #ccc !important;
-    box-shadow: none !important;
-  }
-
-  .grid-item {
-    break-inside: avoid;
-    background: white !important;
-    border: 1px solid #ddd !important;
-  }
-}`
-  }
-
-  /**
-   * 生成背景样式
-   * @param theme - 主题配置
-   * @returns 背景CSS字符串
-   */
-  private generateBackgroundStyle(theme: ThemeConfig): string {
-    if (theme.backgroundImage) {
-      return `linear-gradient(135deg,
-        rgba(var(--color-background-rgb), 0.9) 0%,
-        rgba(var(--color-background-rgb), 0.7) 50%,
-        rgba(var(--color-background-rgb), 0.9) 100%),
-      url('${theme.backgroundImage}') center/cover fixed`
-    }
-    return `linear-gradient(135deg,
-      var(--color-background) 0%,
-      rgba(var(--color-surface-rgb), 0.8) 50%,
-      var(--color-background) 100%)`
-  }
-
-  /**
-   * 获取网格列数
-   * @returns 网格列数
-   */
-  private getGridCols(): number {
-    // 这里可以根据需要动态计算，暂时返回默认值
-    return 2
-  }
-
-  /**
-   * 生成页面主体内容
-   * @param theme - 主题配置
-   * @param layout - 布局配置
-   * @returns HTML主体字符串
-   */
   private generateBody(theme: ThemeConfig, layout: LayoutConfig): string {
-    const grid = layout.items.map((item, index) => {
-      const badge = item.badge ? `<span class="grid-item-badge">${item.badge}</span>` : ''
-      const title = item.title ? `<h3 class="grid-item-title">${this.escape(item.title)}</h3>` : ''
+    const grid = layout.items.map(item => {
+      const title = item.title ? `<div class="grid-item-title">${this.escape(item.title)}</div>` : ''
       const content = item.type === 'image'
-        ? `<img src="${item.content}" style="max-width:100%;border-radius:var(--radius-sm);box-shadow:var(--shadow-md)" alt="${this.escape(item.title)}" loading="lazy">`
+        ? `<img src="${item.content}" alt="${this.escape(item.title)}" loading="lazy">`
         : `<div class="grid-item-content">${this.escape(item.content)}</div>`
 
-      return `<div class="grid-item${item.itemType ? ` ${item.itemType}` : ''}"${item.id ? ` id="${item.id}"` : ''} style="grid-column:${item.col}/span ${item.colSpan || 1};grid-row:${item.row}/span ${item.rowSpan || 1}">${badge}<div class="grid-item-header">${title}</div>${content}</div>`
+      return `<div class="grid-item ${item.itemType}" style="grid-column:${item.col}/span ${item.colSpan};grid-row:${item.row}/span ${item.rowSpan}">${title}${content}</div>`
     }).join('')
 
-    return `<div class="container" style="--grid-cols:${layout.cols}">${theme.header.show ? `<div class="header">${this.escape(theme.header.text)}</div>` : ''}<div class="grid-container">${grid}</div>${theme.footer.show ? `<div class="footer">${this.escape(theme.footer.text)}</div>` : ''}</div>`
+    return `<div class="container" style="--grid-cols:${layout.cols}">
+      ${theme.header.show ? `<div class="header">${theme.header.content}</div>` : ''}
+      <div class="grid-container">${grid}</div>
+      ${theme.footer.show ? `<div class="footer">${theme.footer.content}</div>` : ''}
+    </div>`
   }
 
-  /**
-   * 将十六进制颜色转换为RGB
-   * @param hex - 十六进制颜色值
-   * @returns RGB值字符串 (格式: "r,g,b")
-   */
-  private hexToRgb(hex: string): string {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
-    return result ? `${parseInt(result[1], 16)},${parseInt(result[2], 16)},${parseInt(result[3], 16)}` : '0,0,0'
-  }
-
-  /**
-   * 转义HTML特殊字符以防止XSS攻击
-   * @param str - 需要转义的字符串
-   * @returns 转义后的安全字符串
-   */
   private escape(str: string): string {
-    if (!str) return '';
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
+    return String(str || '').replace(/[&<>"']/g, m => ({ '&': '&lt;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m])
   }
 }

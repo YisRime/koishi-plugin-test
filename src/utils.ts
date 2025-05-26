@@ -25,7 +25,7 @@ export class FileManager {
    */
   private getPath(type: string, id: string, locale?: string): string {
     const name = locale ? `${id}_${locale}` : id
-    const subDir = { asset: 'assets', command: 'commands', layout: 'layouts' }[type] || ''
+    const subDir = { asset: 'assets', command: 'commands', layout: 'layouts' }[type]
     const ext = type === 'asset' ? '' : '.json'
     return join(this.dataDir, subDir, `${name.replace(/\./g, '_')}${ext}`)
   }
@@ -96,7 +96,7 @@ export class DataService {
    * @returns Promise<any[]> 命令数据数组
    */
   async loadCommands(commandName: string, session: any, locale: string) {
-    const key = commandName || 'commands'
+    const key = commandName ? commandName : 'commands'
     let data = await this.fileManager.load<any>('command', key, locale)
     if (!data) {
       if (commandName) {
@@ -118,7 +118,7 @@ export class DataService {
    * @returns Promise<any> 布局配置对象
    */
   async loadLayout(commandName: string, commandsData: any[]) {
-    const key = commandName || 'main'
+    const key = commandName ? commandName : 'main'
     let layout = await this.fileManager.load('layout', key)
     if (!layout) {
       layout = await this.contentManager.generateLayout(commandName, commandsData)
