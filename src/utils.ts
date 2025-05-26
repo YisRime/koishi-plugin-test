@@ -20,9 +20,14 @@ export class FileStore {
    */
   private buildPath(type: string, id: string, locale?: string): string {
     const name = locale ? `${id}_${locale}` : id
-    const folder = { asset: 'assets', command: 'commands', layout: 'layouts' }[type]
-    const ext = type === 'asset' ? '' : '.json'
-    return join(this.baseDir, folder, `${name.replace(/\./g, '_')}${ext}`)
+    if (type === 'asset') {
+      return join(this.baseDir, 'assets', `${name.replace(/\./g, '_')}`)
+    } else if (type === 'command') {
+      return join(this.baseDir, 'commands', `${name.replace(/\./g, '_')}.json`)
+    } else if (type === 'layout') {
+      return join(this.baseDir, `${name.replace(/\./g, '_')}.json`)
+    }
+    return join(this.baseDir, `${name.replace(/\./g, '_')}.json`)
   }
 
   /**
@@ -91,12 +96,42 @@ export class DataStore {
    * 获取布局数据
    */
   async getLayout(cmdName: string, commands: any[]) {
-    const key = cmdName ? cmdName : 'main'
-    let layout = await this.files.read('layout', key)
-    if (!layout) {
-      layout = await createLayout(cmdName, commands)
-      if (layout) await this.files.write('layout', key, layout)
+    let layouts = await this.files.read('layout', 'layouts')
+    if (!layouts) {
+      // 生成所有命令的布局
+      layouts = await this.generateAllLayouts(commands)
+      if (layouts) await this.files.write('layout', 'layouts', layouts)
     }
-    return layout
+
+    // 返回指定命令的布局或主菜单布局
+    const key = cmdName || 'main'
+    return layouts[key] || null
+  }
+
+  /**
+   * 生成所有命令的布局
+   */
+  private async generateAllLayouts(commands: any[]): Promise<Record<string, any>> {
+    const layouts: Record<string, any> = {}
+
+    // 生成主菜单布局
+    layouts.main = await createLayout(null, commands)
+
+    // 为每个命令生成详情布局
+    for (const cmd of commands) {
+      if (cmd.name) {
+        layouts[cmd.name] = await createLayout(cmd.name, commands)
+      }
+      // 为子命令生成布局
+      if (cmd.subs) {
+        for (const sub of cmd.subs) {
+          if (sub.name) {
+            layouts[sub.name] = await createLayout(sub.name, commands)
+          }
+        }
+      }
+    }
+
+    return layouts
   }
 }
