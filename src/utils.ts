@@ -116,17 +116,23 @@ export class DataStore {
       allCommands = await this.extract.getAll(session, locale)
       await this.files.write('commands', allCommands, locale)
     }
-    if (!cmdName) return allCommands
+    // 应用过滤
+    let commands = await this.extract.filterCommands(allCommands, session)
+    commands = commands.map(command => this.extract.filterCommandOptions(command, session))
+    if (!cmdName) return commands
     // 查找特定命令
-    const command = allCommands.find(c => c.name === cmdName) ||
-                   allCommands.flatMap(c => c.subs || []).find(s => s.name === cmdName)
-    if (command) return [command]
-    // 如果未找到，尝试单独获取
-    const singleCmd = await this.extract.getSingle(session, cmdName, locale)
-    if (singleCmd) {
-      allCommands.push(singleCmd)
-      await this.files.write('commands', allCommands, locale)
-      return [singleCmd]
+    const found = commands.find(c => c.name === cmdName) ||
+                  commands.flatMap(c => c.subs || []).find(s => s.name === cmdName)
+    if (found) return [found]
+    // 尝试单独获取
+    const single = await this.extract.getSingle(session, cmdName, locale)
+    if (single) {
+      const filtered = await this.extract.filterCommands([single], session)
+      if (filtered.length) {
+        allCommands.push(single)
+        await this.files.write('commands', allCommands, locale)
+        return [this.extract.filterCommandOptions(filtered[0], session)]
+      }
     }
     return []
   }

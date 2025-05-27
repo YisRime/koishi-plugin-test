@@ -1,8 +1,21 @@
-import { Context, Schema, Logger, h } from 'koishi'
+import { Context, Schema, Logger, h, Computed } from 'koishi'
 import {} from 'koishi-plugin-puppeteer'
 import { Extract, createLayout } from './extract'
 import { FileStore, DataStore } from './utils'
 import { Render } from './render'
+
+declare module 'koishi' {
+  namespace Command {
+    interface Config {
+      hidden?: Computed<boolean>
+    }
+  }
+  namespace Argv {
+    interface OptionConfig {
+      hidden?: Computed<boolean>
+    }
+  }
+}
 
 export const name = 'test'
 export const inject = ['puppeteer']
@@ -65,7 +78,7 @@ export const Config: Schema<Config> = Schema.intersect([
   }).description('界面配置'),
   Schema.object({
     header: Schema.string().role('textarea').description('页头 HTML 内容'),
-    footer: Schema.string().role('textarea').description('页脚 HTML 内容').default('Powered by <strong>Koishi</strong>'),
+    footer: Schema.string().role('textarea').description('页脚 HTML 内容'),
   }).description('页面内容'),
   Schema.object({
     primary: Schema.string().description('主色调').role('color').default('#8b5cf6'),
@@ -86,6 +99,14 @@ export function apply(ctx: Context, config: Config) {
   const extract = new Extract(ctx)
   const data = new DataStore(files, extract)
 
+  // 扩展命令配置架构
+  ctx.schema.extend('command', Schema.object({
+    hidden: Schema.computed(Schema.boolean()).description('在帮助中隐藏指令').default(false),
+  }), 900)
+  ctx.schema.extend('command-option', Schema.object({
+    hidden: Schema.computed(Schema.boolean()).description('在帮助中隐藏选项').default(false),
+  }), 900)
+
   /**
    * 渲染 HTML 内容为 PNG 图像
    * @param html - 要渲染的完整 HTML 字符串
@@ -99,21 +120,33 @@ export function apply(ctx: Context, config: Config) {
     return await element.screenshot({ type: 'png', omitBackground: true })
   }
 
+  // 命令执行前检查并处理无 action 命令
+  ctx.before('command/execute', (argv) => {
+    const { command, session } = argv
+    if (command['_actions'].length || !session.app.$commander.get('menu')) return
+    return session.execute({ name: 'menu', args: [command.name] })
+  })
+
   // 注册命令
   ctx.command('menu [cmd:string]', '显示指令帮助')
+    .userFields(['authority'])
     .action(async ({ session }, cmd) => {
       try {
         const locale = extract.getLocale(session)
-        // 根据配置模式获取命令数据
-        const commands = config.cmdSrc === 'inline'
+        // 获取命令数据
+        let commands = config.cmdSrc === 'inline'
           ? (cmd ? await extract.getRelated(session, cmd, locale) : await extract.getAll(session, locale))
           : await data.getCommands(cmd, session, locale)
-        // 根据配置模式获取布局
+        // 应用过滤
+        if (config.cmdSrc === 'inline') {
+          commands = await extract.filterCommands(commands, session)
+          commands = commands.map(command => extract.filterCommandOptions(command, session))
+        }
+        // 获取布局并渲染
         const layout = config.layoutSrc === 'inline'
           ? await createLayout(cmd, commands)
           : await data.getLayout(cmd, commands)
         if (!layout) return cmd ? `找不到命令 ${cmd}` : '无可用命令'
-        // 渲染
         const html = render.buildHtml(config, layout, commands)
         const buffer = await toImage(html)
         return h.image(buffer, 'image/png')

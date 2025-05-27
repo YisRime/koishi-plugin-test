@@ -162,6 +162,94 @@ export class Extract {
   }
 
   /**
+   * 过滤命令列表，应用权限和隐藏检查
+   * @param commands - 命令列表
+   * @param session - 会话对象
+   * @returns Promise<Command[]> 过滤后的命令列表
+   */
+  async filterCommands(commands: Command[], session: any): Promise<Command[]> {
+    const cache = new Map<string, Promise<boolean>>()
+    const results = await Promise.all(commands.map(async (command) => {
+      if (this.isCommandHidden(command.name, session)) return null
+      if (!await this.checkCommandPermission(command.name, session, cache)) return null
+      // 递归过滤子命令
+      if (command.subs?.length) {
+        const filteredSubs = await this.filterCommands(command.subs, session)
+        return { ...command, subs: filteredSubs.length ? filteredSubs : undefined }
+      }
+      return command
+    }))
+    return results.filter(Boolean)
+  }
+
+  /**
+   * 过滤命令选项，应用权限和隐藏检查
+   * @param command - 命令数据
+   * @param session - 会话对象
+   * @returns Command 过滤后的命令数据
+   */
+  filterCommandOptions(command: Command, session: any): Command {
+    const filteredOptions = command.options.filter(option => {
+      if (!this.isOptionVisible(command.name, option.name, session)) return false
+      if (this.isOptionHidden(command.name, option.name, session)) return false
+      return true
+    })
+    return { ...command, options: filteredOptions }
+  }
+
+  /**
+   * 检查命令权限
+   * @param commandName - 命令名称
+   * @param session - 会话对象
+   * @param cache - 权限检查缓存
+   * @returns Promise<boolean> 是否有权限
+   */
+  async checkCommandPermission(commandName: string, session: any, cache?: Map<string, Promise<boolean>>): Promise<boolean> {
+    if (!this.ctx.permissions) return true
+    return await this.ctx.permissions.test(`command:${commandName}`, session, cache)
+  }
+
+  /**
+   * 检查命令是否被隐藏
+   * @param commandName - 命令名称
+   * @param session - 会话对象
+   * @returns boolean 是否隐藏
+   */
+  isCommandHidden(commandName: string, session: any): boolean {
+    const command = this.ctx.$commander.resolve(commandName, session)
+    return command ? session.resolve?.(command.config?.hidden) || false : false
+  }
+
+  /**
+   * 检查选项是否可见
+   * @param commandName - 命令名称
+   * @param optionName - 选项名称
+   * @param session - 会话对象
+   * @returns boolean 是否可见
+   */
+  isOptionVisible(commandName: string, optionName: string, session: any): boolean {
+    const command = this.ctx.$commander.resolve(commandName, session)
+    if (!command) return false
+    const option = command._options[optionName]
+    if (!option) return false
+    return !session.user || option.authority <= session.user.authority
+  }
+
+  /**
+   * 检查选项是否被隐藏
+   * @param commandName - 命令名称
+   * @param optionName - 选项名称
+   * @param session - 会话对象
+   * @returns boolean 是否隐藏
+   */
+  isOptionHidden(commandName: string, optionName: string, session: any): boolean {
+    const command = this.ctx.$commander.resolve(commandName, session)
+    if (!command) return false
+    const option = command._options[optionName]
+    return option ? session.resolve?.(option.hidden) || false : false
+  }
+
+  /**
    * 构建命令的完整数据结构
    * @param command - Koishi 命令对象
    * @param session - 会话对象，用于获取本地化文本
@@ -175,20 +263,20 @@ export class Extract {
       if (Array.isArray(data)) return data.map(item => typeof item === 'string' ? item : item?.attrs?.content || '').filter(Boolean).join(' ').trim()
       return ''
     }
-    const desc = getText([`commands.${command.name}.description`, ''], command.config?.params || {})
-    const usage = command._usage ? (typeof command._usage === 'string' ? command._usage : await command._usage(session)) : getText([`commands.${command.name}.usage`, ''], command.config?.params || {})
+    const desc = getText([`commands.${command.name}.description`, ''])
+    const usage = command._usage ? (typeof command._usage === 'string' ? command._usage : await command._usage(session)) : getText([`commands.${command.name}.usage`, ''])
     const options: Option[] = []
     Object.values(command._options || {}).forEach((opt: any) => {
       const add = (option: any, name: string) => {
-        if (option && !(session.resolve?.(option.hidden))) {
-          const desc = getText(option.descPath ?? [`commands.${command.name}.options.${name}`, ''], option.params || {})
+        if (option) {
+          const desc = getText(option.descPath ?? [`commands.${command.name}.options.${name}`, ''])
           if (desc || option.syntax) options.push({ name, desc: desc, syntax: option.syntax || '' })
         }
       }
       if (!('value' in opt)) add(opt, opt.name)
       if (opt.variants) Object.keys(opt.variants).forEach(key => add(opt.variants[key], `${opt.name}.${key}`))
     })
-    const examples = command._examples?.length ? [...command._examples] : getText([`commands.${command.name}.examples`, ''], command.config?.params || {}).split('\n').filter(line => line.trim())
+    const examples = command._examples?.length ? [...command._examples] : getText([`commands.${command.name}.examples`, '']).split('\n').filter(line => line.trim())
     const subs = command.children?.length ? (await Promise.all(command.children.filter((sub: any) => sub.ctx.filter(session)).map((sub: any) => this.buildData(sub, session)))).filter(Boolean) : []
     return {
       name: command.name, desc: clean(desc), usage: clean(usage), options,
