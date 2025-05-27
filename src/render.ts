@@ -1,31 +1,59 @@
+/**
+ * 布局配置接口
+ * @interface Layout
+ */
 export interface Layout {
+  /** 网格行数 */
   rows: number
+  /** 网格列数 */
   cols: number
-  items: Item[]
+  /** 布局项目列表 */
+  items: LayoutItem[]
 }
 
-export interface Item {
+/**
+ * 布局项目接口
+ * @interface LayoutItem
+ */
+export interface LayoutItem {
+  /** 起始行位置 */
   row: number
+  /** 起始列位置 */
   col: number
+  /** 跨越的行数 */
   rowSpan: number
+  /** 跨越的列数 */
   colSpan: number
-  type: 'text' | 'image'
-  content: string
-  title: string
-  id: string
-  itemType: 'command' | 'subCommand' | 'option' | 'title' | 'header'
+  /** 命令名称 */
+  commandName: string
+  /** 项目类型 */
+  itemType: 'desc' | 'usage' | 'examples' | 'options' | 'subs'
 }
 
 /**
  * 主题渲染器
+ * @class Render
  */
 export class Render {
-  buildHtml(config: any, layout: Layout): string {
+  /**
+   * 构建完整的 HTML 页面
+   * @param {any} config - 配置对象，包含样式和页面设置
+   * @param {Layout} layout - 布局配置
+   * @param {any[]} commands - 命令数据数组
+   * @returns {string} 完整的 HTML 字符串
+   */
+  buildHtml(config: any, layout: Layout, commands: any[]): string {
     const css = this.buildCSS(config)
-    const body = this.buildBody(config, layout)
+    const body = this.buildBody(config, layout, commands)
     return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body>${body}</body></html>`
   }
 
+  /**
+   * 构建 CSS 样式字符串
+   * @private
+   * @param {any} config - 配置对象，包含主题色彩、字体等样式设置
+   * @returns {string} CSS 样式字符串
+   */
   private buildCSS(config: any): string {
     return `
 ${config.fontUrl ? `@import url('${config.fontUrl}');` : ''}
@@ -78,7 +106,7 @@ body::before {
 
 .container {
   width: 100%;
-  max-width: 520px;
+  max-width: 480px;
   background: rgba(255, 255, 255, 0.98);
   border-radius: calc(var(--radius) * 1.5);
   overflow: hidden;
@@ -141,7 +169,7 @@ body::before {
   position: absolute;
   top: 0;
   left: 0;
-  width: 6px;
+  width: 8px;
   height: 100%;
   background: linear-gradient(180deg, rgba(139, 92, 246, 0.7) 0%, rgba(56, 189, 248, 0.7) 100%);
   opacity: 0.6;
@@ -162,34 +190,6 @@ body::before {
   color: var(--text-light);
   white-space: pre-wrap;
   line-height: 1.6;
-}
-
-.grid-item.header {
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.12) 0%, rgba(56, 189, 248, 0.08) 100%);
-  border: 2px solid rgba(139, 92, 246, 0.2);
-  box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.05),
-    0 4px 12px rgba(139, 92, 246, 0.12);
-  grid-column: 1 / -1;
-}
-
-.grid-item.header::before {
-  background: linear-gradient(180deg, rgba(139, 92, 246, 0.8) 0%, rgba(56, 189, 248, 0.6) 100%);
-  width: 8px;
-}
-
-.grid-item.header .grid-item-title {
-  color: rgba(139, 92, 246, 0.9);
-  font-size: calc(var(--fs) * var(--title-scale) * 1.2);
-  -webkit-text-fill-color: rgba(139, 92, 246, 0.9);
-  text-align: center;
-  margin-bottom: calc(var(--spacing) * 0.3);
-}
-
-.grid-item.header .grid-item-content {
-  color: rgba(100, 116, 139, 0.8);
-  text-align: center;
-  font-weight: 500;
 }
 
 .grid-item.option {
@@ -245,16 +245,21 @@ body::before {
 `
   }
 
-  private buildBody(config: any, layout: Layout): string {
-    const grid = layout.items.map(item => {
-      const title = item.title ? `<div class="grid-item-title">${this.safeText(item.title)}</div>` : ''
-      const content = item.type === 'image'
-        ? `<img src="${item.content}" alt="${this.safeText(item.title)}" loading="lazy">`
-        : `<div class="grid-item-content">${this.safeText(item.content)}</div>`
-
-      return `<div class="grid-item ${item.itemType}" style="grid-column:${item.col}/span ${item.colSpan};grid-row:${item.row}/span ${item.rowSpan}">${title}${content}</div>`
+  /**
+   * 构建页面主体内容
+   * @private
+   * @param {any} config - 配置对象
+   * @param {Layout} layout - 布局配置
+   * @param {any[]} commands - 命令数据数组
+   * @returns {string} HTML 主体内容字符串
+   */
+  private buildBody(config: any, layout: Layout, commands: any[]): string {
+    const grid = layout.items.map(layoutItem => {
+      const { title, content, cssClass } = this.buildItemContent(layoutItem, commands)
+      const titleHtml = title ? `<div class="grid-item-title">${this.safeText(title)}</div>` : ''
+      const contentHtml = `<div class="grid-item-content">${this.safeText(content)}</div>`
+      return `<div class="grid-item ${cssClass}" style="grid-column:${layoutItem.col}/span ${layoutItem.colSpan};grid-row:${layoutItem.row}/span ${layoutItem.rowSpan}">${titleHtml}${contentHtml}</div>`
     }).join('')
-
     return `<div class="container" style="--grid-cols:${layout.cols}">
       ${config.header?.trim() ? `<div class="header">${config.header.trim()}</div>` : ''}
       <div class="grid-container">${grid}</div>
@@ -262,7 +267,50 @@ body::before {
     </div>`
   }
 
+  /**
+   * 构建单个布局项目的内容
+   * @private
+   * @param {LayoutItem} layoutItem - 布局项目配置
+   * @param {any[]} commands - 命令数据数组
+   * @returns {{title: string; content: string; cssClass: string}} 包含标题、内容和CSS类名的对象
+   */
+  private buildItemContent(layoutItem: LayoutItem, commands: any[]): { title: string; content: string; cssClass: string } {
+    const { commandName, itemType } = layoutItem
+    const cmd = commands.find(c => c.name === commandName) ||
+               commands.flatMap(c => c.subs || []).find(s => s.name === commandName)
+    if (!cmd) return { title: commandName, content: '命令未找到', cssClass: 'error' }
+    const contentMap = {
+      desc: () => ({ title: cmd.name, content: cmd.desc || '无描述', cssClass: 'description' }),
+      usage: () => ({ title: '使用方法', content: cmd.usage || '无使用说明', cssClass: 'usage' }),
+      examples: () => ({
+        title: `使用示例 (${cmd.examples?.length || 0})`,
+        content: cmd.examples?.length ? cmd.examples.join('\n\n') : '无示例',
+        cssClass: 'examples'
+      }),
+      options: () => ({
+        title: `选项参数 (${cmd.options?.length || 0})`,
+        content: cmd.options?.length ? cmd.options.map(o => {
+          const syntax = o.syntax || o.name
+          return o.desc ? `${syntax}\n  ${o.desc}` : syntax
+        }).join('\n\n') : '无选项',
+        cssClass: 'option'
+      }),
+      subs: () => ({
+        title: `子命令 (${cmd.subs?.length || 0})`,
+        content: cmd.subs?.length ? cmd.subs.map(s => `${s.name} - ${s.desc || '无描述'}`).join('\n') : '无子命令',
+        cssClass: 'subCommand'
+      })
+    }
+    return contentMap[itemType]?.() || contentMap.desc()
+  }
+
+  /**
+   * 转义 HTML 特殊字符，防止 XSS 攻击
+   * @private
+   * @param {string} str - 需要转义的字符串
+   * @returns {string} 转义后的安全字符串
+   */
   private safeText(str: string): string {
-    return String(str || '').replace(/[&<>"']/g, m => ({ '&': '&lt;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m])
+    return String(str || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m])
   }
 }

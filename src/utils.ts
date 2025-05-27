@@ -10,6 +10,7 @@ export class FileStore {
 
   /**
    * 创建文件管理器实例
+   * @param rootDir - 根目录路径
    */
   constructor(rootDir: string) {
     this.baseDir = join(rootDir, 'data/test')
@@ -17,24 +18,32 @@ export class FileStore {
 
   /**
    * 获取文件路径
+   * @param type - 文件类型 ('commands' | 'layouts' | 'assets' | 其他)
+   * @param locale - 语言代码，可选
+   * @param id - 文件标识符，可选
+   * @returns 构建的文件完整路径
+   * @private
    */
-  private buildPath(type: string, id: string, locale?: string): string {
-    const name = locale ? `${id}_${locale}` : id
-    const safeName = name.replace(/\./g, '_')
+  private buildPath(type: string, locale?: string, id?: string): string {
+    const localeFile = locale ? `commands-${locale}.json` : 'commands.json'
     const paths = {
-      asset: join(this.baseDir, 'assets', safeName),
-      command: join(this.baseDir, 'commands', `${safeName}.json`),
-      layout: join(this.baseDir, `${safeName}.json`)
+      commands: join(this.baseDir, 'commands', localeFile),
+      layouts: join(this.baseDir, 'layouts.json'),
+      assets: id ? join(this.baseDir, 'assets', id) : join(this.baseDir, 'assets')
     }
-    return paths[type] || join(this.baseDir, `${safeName}.json`)
+    return paths[type] || join(this.baseDir, `${id || 'data'}.json`)
   }
 
   /**
-   * 检查文件存在
+   * 检查文件是否存在
+   * @param type - 文件类型
+   * @param locale - 语言代码，可选
+   * @param id - 文件标识符，可选
+   * @returns Promise<boolean> 文件是否存在
    */
-  async has(type: string, id: string, locale?: string): Promise<boolean> {
+  async has(type: string, locale?: string, id?: string): Promise<boolean> {
     try {
-      await promises.access(this.buildPath(type, id, locale))
+      await promises.access(this.buildPath(type, locale, id))
       return true
     } catch {
       return false
@@ -42,21 +51,38 @@ export class FileStore {
   }
 
   /**
-   * 保存数据
+   * 保存数据到文件
+   * @template T - 数据类型
+   * @param type - 文件类型
+   * @param data - 要保存的数据
+   * @param locale - 语言代码，可选
+   * @param id - 文件标识符，可选
+   * @returns Promise<void>
+   * @throws {Error} 当文件写入失败时抛出错误
    */
-  async write<T>(type: string, id: string, data: T, locale?: string): Promise<void> {
-    const path = this.buildPath(type, id, locale)
+  async write<T>(type: string, data: T, locale?: string, id?: string): Promise<void> {
+    const path = this.buildPath(type, locale, id)
     await promises.mkdir(dirname(path), { recursive: true })
-    await promises.writeFile(path, type === 'asset' ? String(data) : JSON.stringify(data, null, 2), 'utf8')
+    if (type === 'assets') {
+      await promises.writeFile(path, String(data), 'utf8')
+    } else {
+      await promises.writeFile(path, JSON.stringify(data, null, 2), 'utf8')
+    }
   }
 
   /**
-   * 读取数据
+   * 从文件读取数据
+   * @template T - 期望的数据类型
+   * @param type - 文件类型
+   * @param locale - 语言代码，可选
+   * @param id - 文件标识符，可选
+   * @returns Promise<T | null> 读取的数据，如果文件不存在或读取失败则返回 null
    */
-  async read<T>(type: string, id: string, locale?: string): Promise<T | null> {
+  async read<T>(type: string, locale?: string, id?: string): Promise<T | null> {
     try {
-      const content = await promises.readFile(this.buildPath(type, id, locale), 'utf8')
-      return type === 'asset' ? content as T : JSON.parse(content) as T
+      const path = this.buildPath(type, locale, id)
+      const content = await promises.readFile(path, 'utf8')
+      return type === 'assets' ? content as T : JSON.parse(content) as T
     } catch {
       return null
     }
@@ -67,6 +93,11 @@ export class FileStore {
  * 数据服务类
  */
 export class DataStore {
+  /**
+   * 创建数据服务实例
+   * @param files - 文件管理器实例
+   * @param extract - 命令提取器实例
+   */
   constructor(
     private readonly files: FileStore,
     private readonly extract: any
@@ -74,47 +105,67 @@ export class DataStore {
 
   /**
    * 获取命令数据
+   * @param cmdName - 命令名称，为空时返回所有命令
+   * @param session - 会话对象
+   * @param locale - 语言代码
+   * @returns Promise<any[]> 命令数据数组
    */
   async getCommands(cmdName: string, session: any, locale: string) {
-    const key = cmdName ? cmdName : 'commands'
-    let data = await this.files.read<any>('command', key, locale)
-    if (!data) {
-      if (cmdName) {
-        const all = await this.files.read<any[]>('command', 'commands', locale)
-        data = all?.find(c => c.name === cmdName) || all?.flatMap(c => c.subCommands || []).find(s => s.name === cmdName) || await this.extract.getSingle(session, cmdName, locale)
-        if (data) await this.files.write('command', cmdName, data, locale)
-      } else {
-        data = await this.extract.getAll(session, locale)
-        await this.files.write('command', 'commands', data, locale)
-      }
+    let allCommands = await this.files.read<any[]>('commands', locale)
+    if (!allCommands) {
+      allCommands = await this.extract.getAll(session, locale)
+      await this.files.write('commands', allCommands, locale)
     }
-    return Array.isArray(data) ? data : data ? [data] : []
+    if (!cmdName) return allCommands
+    // 查找特定命令
+    const command = allCommands.find(c => c.name === cmdName) ||
+                   allCommands.flatMap(c => c.subs || []).find(s => s.name === cmdName)
+    if (command) return [command]
+    // 如果未找到，尝试单独获取
+    const singleCmd = await this.extract.getSingle(session, cmdName, locale)
+    if (singleCmd) {
+      allCommands.push(singleCmd)
+      await this.files.write('commands', allCommands, locale)
+      return [singleCmd]
+    }
+    return []
   }
 
   /**
    * 获取布局数据
+   * @param cmdName - 命令名称，为空时返回主布局
+   * @param commands - 命令数据数组
+   * @returns Promise<any | null> 布局数据，如果不存在则返回 null
    */
   async getLayout(cmdName: string, commands: any[]) {
-    let layouts = await this.files.read('layout', 'layouts')
+    let layouts = await this.files.read('layouts')
     if (!layouts) {
       layouts = await this.generateAllLayouts(commands)
-      if (layouts) await this.files.write('layout', 'layouts', layouts)
+      if (layouts) await this.files.write('layouts', layouts)
     }
-    // 返回指定命令的布局或主菜单布局
-    const key = cmdName || 'main'
-    return layouts[key] || null
+    return layouts[cmdName || 'main'] || null
   }
 
   /**
-   * 生成所有命令的布局
+   * 生成所有命令的布局数据
+   * @param commands - 命令数据数组
+   * @returns Promise<Record<string, any>> 布局数据映射表，键为命令名称，值为布局数据
+   * @private
    */
   private async generateAllLayouts(commands: any[]): Promise<Record<string, any>> {
-    const layouts: Record<string, any> = { main: await createLayout(null, commands) }
-    const addLayout = async (cmd: any) => { if (cmd.name) layouts[cmd.name] = await createLayout(cmd.name, commands) }
-    await Promise.all([
-      ...commands.map(addLayout),
-      ...commands.flatMap(cmd => cmd.subs || []).map(addLayout)
-    ])
+    const layouts: Record<string, any> = {}
+    // 生成主菜单布局
+    const mainLayout = await createLayout(null, commands)
+    if (mainLayout) layouts.main = mainLayout
+    // 批量生成所有命令布局
+    const allCommands = [...commands, ...commands.flatMap(cmd => cmd.subs || [])]
+    const layoutPromises = allCommands
+      .filter(cmd => cmd.name)
+      .map(async cmd => {
+        const layout = await createLayout(cmd.name, commands)
+        if (layout) layouts[cmd.name] = layout
+      })
+    await Promise.all(layoutPromises)
     return layouts
   }
 }

@@ -1,110 +1,97 @@
 import { Context } from 'koishi'
-import { Layout, Item } from './render'
+import { Layout, LayoutItem } from './render'
 
 /**
  * 命令选项接口
  */
 interface Option {
+  /** 选项名称 */
   name: string
+  /** 选项描述信息 */
   desc: string
+  /** 选项语法格式 */
   syntax: string
 }
 
 /**
  * 命令数据接口
+ * 描述完整的命令信息结构
  */
 interface Command {
+  /** 命令名称 */
   name: string
+  /** 命令描述 */
   desc: string
+  /** 使用方法 */
   usage: string
+  /** 命令选项列表 */
   options: Option[]
+  /** 使用示例列表 */
   examples: string[]
+  /** 子命令列表，可选 */
   subs?: Command[]
 }
 
 /**
- * 创建布局
+ * 创建布局数据
+ * @param cmdName - 命令名称，null 或空字符串表示生成主菜单布局
+ * @param commands - 命令数据数组
+ * @returns Promise<Layout | null> 生成的布局数据，如果无法生成则返回 null
  */
 export async function createLayout(cmdName: string = null, commands: Command[]): Promise<Layout | null> {
   if (!commands.length) return null
-  return cmdName ? buildDetail(cmdName, commands) : buildMenu(commands)
-}
-
-/**
- * 创建详情布局
- */
-function buildDetail(cmdName: string, data: Command[]): Layout | null {
-  const cmd = data.find(c => c.name === cmdName) ||
-              data.flatMap(c => c.subs || []).find(s => s.name === cmdName)
-  if (!cmd) return null
-  const items: Item[] = []
-  let row = 1
-  const addItem = (content: string, title: string, id: string, itemType: any) => {
-    if (content?.trim()) {
-      items.push({
-        row: row++, col: 1, rowSpan: 1, colSpan: 1,
-        type: 'text', content, title, id, itemType
-      })
-    }
-  }
-  // 标题
-  addItem(cmd.desc || '无描述', cmd.name, 'header', 'header')
-  // 用法
-  addItem(cmd.usage, '使用方法', 'usage', 'command')
-  // 选项
-  if (cmd.options?.length) {
-    const optionsText = cmd.options.map(o => `${o.name} ${o.syntax || ''}\n  ${o.desc || ''}`).join('\n\n')
-    addItem(optionsText, `选项参数 (${cmd.options.length})`, 'options', 'option')
-  }
-  // 示例
-  if (cmd.examples?.length) addItem(cmd.examples.join('\n'), '使用示例', 'examples', 'command')
-  // 子命令
-  if (cmd.subs?.length) {
-    const subsText = cmd.subs.map(s => `${s.name} - ${s.desc || ''}`).join('\n')
-    addItem(subsText, `子命令 (${cmd.subs.length})`, 'subs', 'subCommand')
-  }
-  return { rows: row - 1, cols: 1, items }
-}
-
-/**
- * 创建菜单布局
- */
-function buildMenu(data: Command[]): Layout {
-  const items: Item[] = [{
-    row: 1, col: 1, rowSpan: 1, colSpan: 2,
-    type: 'text', content: '选择命令查看详细信息',
-    title: '命令菜单', id: 'title', itemType: 'header'
-  }]
-  // 按第一段分组并生成项目
-  const groups = Object.entries(
-    data.reduce((acc, cmd) => {
-      const group = cmd.name.split('.')[0]
-      if (!acc[group]) acc[group] = []
-      acc[group].push(cmd)
-      return acc
-    }, {} as Record<string, Command[]>)
-  )
-  groups.forEach(([name, cmds], i) => {
-    items.push({
-      row: Math.floor(i / 2) + 2,
-      col: (i % 2) + 1,
-      rowSpan: 1, colSpan: 1, type: 'text',
-      content: cmds.map(c => `${c.name}${c.desc ? ` - ${c.desc}` : ''}`).join('\n'),
-      title: `${name} (${cmds.length})`,
-      id: `group-${name}`, itemType: 'command'
+  const items: LayoutItem[] = []
+  if (cmdName) {
+    // 详情布局：为指定命令生成详细信息项
+    const cmd = commands.find(c => c.name === cmdName) ||
+                commands.flatMap(c => c.subs || []).find(s => s.name === cmdName)
+    if (!cmd) return null
+    const itemTypes = ['desc', 'usage', 'options', 'examples', 'subs'] as const
+    itemTypes.forEach((type, row) => {
+      if (hasContent(cmd, type)) items.push({ row: row + 1, col: 1, rowSpan: 1, colSpan: 1, commandName: cmdName, itemType: type })
     })
-  })
-  return { rows: Math.ceil(groups.length / 2) + 1, cols: 2, items }
+    return items.length > 0 ? { rows: items.length, cols: 1, items } : null
+  } else {
+    // 菜单布局：为所有有效命令生成描述项
+    const validCommands = commands.filter(cmd => cmd.desc?.trim())
+    validCommands.forEach((cmd, i) => {
+      items.push({ row: Math.floor(i / 2) + 1, col: (i % 2) + 1, rowSpan: 1, colSpan: 1, commandName: cmd.name, itemType: 'desc' })
+    })
+    return { rows: Math.ceil(validCommands.length / 2) || 1, cols: validCommands.length > 1 ? 2 : 1, items }
+  }
+}
+
+/**
+ * 检查命令是否包含指定类型的内容
+ * @param cmd - 命令对象
+ * @param type - 内容类型 ('desc' | 'usage' | 'options' | 'examples' | 'subs')
+ * @returns boolean 是否包含对应类型的有效内容
+ */
+function hasContent(cmd: Command, type: string): boolean {
+  switch (type) {
+    case 'desc': return !!(cmd.desc?.trim())
+    case 'usage': return !!(cmd.usage?.trim())
+    case 'options': return !!(cmd.options?.length)
+    case 'examples': return !!(cmd.examples?.length)
+    case 'subs': return !!(cmd.subs?.length)
+    default: return false
+  }
 }
 
 /**
  * 命令提取器
  */
 export class Extract {
+  /**
+   * 创建命令提取器实例
+   * @param ctx - Koishi 应用上下文对象
+   */
   constructor(private readonly ctx: Context) {}
 
   /**
-   * 获取用户语言
+   * 获取用户首选语言代码
+   * @param session - 会话对象，包含用户交互上下文
+   * @returns string 语言代码，如果未找到则返回空字符串
    */
   getLocale(session: any): string {
     const locales = [...(session?.locales || []), ...(session?.channel?.locales || []), ...(session?.guild?.locales || []), ...(session?.user?.locales || [])]
@@ -112,7 +99,10 @@ export class Extract {
   }
 
   /**
-   * 获取所有命令
+   * 获取所有可用命令数据
+   * @param session - 会话对象
+   * @param locale - 语言代码，默认为空字符串
+   * @returns Promise<Command[]> 排序后的命令数组
    */
   async getAll(session: any, locale = ''): Promise<Command[]> {
     if (locale) session.locales = [locale, ...(session.locales || [])]
@@ -125,7 +115,11 @@ export class Extract {
   }
 
   /**
-   * 获取单个命令
+   * 获取单个命令的详细数据
+   * @param session - 会话对象
+   * @param cmdName - 要获取的命令名称
+   * @param locale - 语言代码，默认为空字符串
+   * @returns Promise<Command | null> 命令数据，如果命令不存在则返回 null
    */
   async getSingle(session: any, cmdName: string, locale = ''): Promise<Command | null> {
     if (locale) session.locales = [locale, ...(session.locales || [])]
@@ -134,7 +128,11 @@ export class Extract {
   }
 
   /**
-   * 获取相关命令
+   * 获取与指定命令相关的命令数据
+   * @param session - 会话对象
+   * @param cmdName - 命令名称
+   * @param locale - 语言代码，默认为空字符串
+   * @returns Promise<Command[]> 相关命令数组，包含目标命令和可能的父命令
    */
   async getRelated(session: any, cmdName: string, locale = ''): Promise<Command[]> {
     const target = await this.getSingle(session, cmdName, locale)
@@ -148,7 +146,11 @@ export class Extract {
   }
 
   /**
-   * 查找命令
+   * 在命令系统中查找指定名称的命令
+   * @param target - 目标命令名称或快捷方式
+   * @param session - 会话对象
+   * @returns 找到的命令对象、匹配结果数组或 null
+   * @private
    */
   private findCmd(target: string, session: any) {
     const $ = this.ctx.$commander
@@ -160,7 +162,11 @@ export class Extract {
   }
 
   /**
-   * 构建命令数据
+   * 构建命令的完整数据结构
+   * @param command - Koishi 命令对象
+   * @param session - 会话对象，用于获取本地化文本
+   * @returns Promise<Command | null> 构建的命令数据，如果构建失败则返回 null
+   * @private
    */
   private async buildData(command: any, session: any): Promise<Command | null> {
     const getText = (path: string | string[], params = {}) => session?.text?.(path, params) || ''
