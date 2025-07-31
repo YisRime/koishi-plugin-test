@@ -2,6 +2,7 @@ import { Context, Schema, Logger, h, Session } from 'koishi'
 import * as path from 'path'
 import { FileManager } from './FileManager'
 import { ProfileManager } from './ProfileManager'
+import { DataManager } from './DataManager'
 
 export const name = 'best-cave'
 export const inject = ['database']
@@ -25,7 +26,7 @@ const logger = new Logger('best-cave');
 // --- 数据类型定义 ---
 
 /** 存储在数据库中的自定义 Element 格式 */
-interface StoredElement {
+export interface StoredElement {
   type: 'text' | 'img' | 'video' | 'audio' | 'file';
   content?: string; // 用于 'text' 类型
   file?: string;    // 用于媒体类型
@@ -52,11 +53,13 @@ export interface Config {
   perChannel: boolean;
   adminUsers: string[];
   enableProfile: boolean;
+  enableDataIO: boolean;
 }
 export const Config: Schema<Config> = Schema.object({
   cooldown: Schema.number().default(60).description("冷却时间（秒）"),
   perChannel: Schema.boolean().default(false).description("分群模式"),
-  enableProfile: Schema.boolean().default(false).description("独立昵称"),
+  enableProfile: Schema.boolean().default(false).description("启用自定义昵称"),
+  enableDataIO: Schema.boolean().default(false).description("启用导入导出"),
   adminUsers: Schema.array(Schema.string()).default([]).description("管理员 ID").role('table')
 })
 
@@ -81,7 +84,10 @@ export function apply(ctx: Context, config: Config) {
     profileManager = new ProfileManager(ctx);
   }
 
-  // --- 内部辅助函数 ---
+  let dataIOManager: DataManager;
+  if (config.enableDataIO) {
+    dataIOManager = new DataManager(ctx, fileManager, logger, () => getNextCaveId({}));
+  }
 
   /** 将 h 元素数组递归转换为自定义的可序列化对象数组 */
   const elementsToStoredFormat = (elements: h[]): StoredElement[] => {
@@ -136,7 +142,7 @@ export function apply(ctx: Context, config: Config) {
 
 
   /** 获取下一个可用的回声洞 ID */
-  async function getNextCaveId(query: object): Promise<number> {
+  async function getNextCaveId(query: object = {}): Promise<number> {
     const allCaves = await ctx.database.get('best_cave', query, { fields: ['id'] });
     const existingIds = allCaves.map(c => c.id).sort((a, b) => a - b);
     let newId = 1;
@@ -163,13 +169,13 @@ export function apply(ctx: Context, config: Config) {
   };
 
   /** 从 URL 下载媒体文件并保存到本地 */
-  const downloadMedia = async (url: string, caveId: number, index: number): Promise<string> => {
+  const downloadMedia = async (url: string, caveId: number, index: number, channelId: string, userId: string): Promise<string> => {
     const defaultExtMap = { image: '.png', video: '.mp4', audio: '.mp3', file: '.dat' };
     const urlPath = new URL(url).pathname;
     const ext = path.extname(urlPath);
     const type = Object.keys(defaultExtMap).find(t => urlPath.includes(t)) || 'file';
     const finalExt = ext || defaultExtMap[type];
-    const fileName = `${caveId}_${index}${finalExt}`;
+    const fileName = `${caveId}_${channelId}_${userId}_${index}${finalExt}`;
     const response = await ctx.http.get(url, { responseType: 'arraybuffer', timeout: 30000 });
     await fileManager.saveFile(fileName, Buffer.from(response));
     return fileName;
@@ -211,7 +217,7 @@ export function apply(ctx: Context, config: Config) {
     const lastTime = lastUsed.get(session.channelId) || 0;
     if (now - lastTime < config.cooldown * 1000) {
       const waitTime = Math.ceil((config.cooldown * 1000 - (now - lastTime)) / 1000);
-      return `操作过于频繁，请在 ${waitTime} 秒后重试`;
+      return `冷却中，请在 ${waitTime} 秒后重试`;
     }
     return null;
   }
@@ -226,12 +232,8 @@ export function apply(ctx: Context, config: Config) {
     }
   }
 
-  // ======================
-  // --- 命令定义 ---
-  // ======================
-
   const cave = ctx.command('cave', '回声洞')
-    .usage('随机抽取一条已添加的回声洞')
+    .usage('随机抽取一条已添加的回声洞。')
     .action(async ({ session }) => {
       const cdMessage = checkCooldown(session);
       if (cdMessage) return cdMessage;
@@ -253,7 +255,7 @@ export function apply(ctx: Context, config: Config) {
     });
 
   cave.subcommand('.add [content:text]', '添加回声洞')
-    .usage('添加一条回声洞，可通过回复及引用消息添加')
+    .usage('添加一条回声洞，可通过回复及引用消息添加。')
     .action(async ({ session }, content) => {
       const downloadedFiles: string[] = [];
       try {
@@ -272,12 +274,11 @@ export function apply(ctx: Context, config: Config) {
         const storedElements = elementsToStoredFormat(sourceElements);
         if (storedElements.length === 0) return "已取消添加";
 
-        const query = getScopeQuery(session);
-        const newId = await getNextCaveId(query);
+        const newId = await getNextCaveId();
 
         await Promise.all(storedElements.map(async (element, index) => {
           if (element.file && element.file.startsWith('http')) {
-            const localFileName = await downloadMedia(element.file, newId, index);
+            const localFileName = await downloadMedia(element.file, newId, index, session.channelId, session.userId);
             downloadedFiles.push(localFileName);
             element.file = localFileName;
           }
@@ -309,7 +310,7 @@ export function apply(ctx: Context, config: Config) {
     });
 
   cave.subcommand('.view <id:posint>', '查看指定回声洞')
-    .usage('输入序号查看对应回声洞')
+    .usage('输入序号查看对应回声洞。')
     .action(async ({ session }, id) => {
       const cdMessage = checkCooldown(session);
       if (cdMessage) return cdMessage;
@@ -330,19 +331,17 @@ export function apply(ctx: Context, config: Config) {
     });
 
   cave.subcommand('.del <id:posint>', '删除指定回声洞')
-    .usage('输入序号删除对应回声洞')
+    .usage('输入序号删除对应回声洞。')
     .action(async ({ session }, id) => {
       if (!id) return '请输入序号';
       try {
-        const query = getScopeQuery(session);
-        query['id'] = id;
-        const [targetCave] = await ctx.database.get('best_cave', query);
+        const [targetCave] = await ctx.database.get('best_cave', { id });
         if (!targetCave) return `回声洞（${id}）不存在`;
 
         const isOwner = targetCave.userId === session.userId;
         const isAdmin = config.adminUsers.includes(session.userId);
         if (!isOwner && !isAdmin) {
-          return '您只能删除自己的回声洞';
+          return '只能删除自己的回声洞';
         }
 
         const caveContent = await buildCaveMessage(targetCave);
@@ -352,7 +351,7 @@ export function apply(ctx: Context, config: Config) {
           .map(el => fileManager.deleteFile(el.file));
         await Promise.all(deletePromises);
 
-        await ctx.database.remove('best_cave', { id: targetCave.id, channelId: targetCave.channelId });
+        await ctx.database.remove('best_cave', { id });
 
         const responseMessage = [
           h('p', {}, `已删除回声洞 —— （${id}）`),
@@ -367,7 +366,7 @@ export function apply(ctx: Context, config: Config) {
     });
 
   cave.subcommand('.list', '查询投稿统计')
-    .usage('查询你所投稿的回声洞')
+    .usage('查询你所投稿的回声洞。')
     .action(async ({ session }) => {
       try {
         const query = getScopeQuery(session);
@@ -375,7 +374,7 @@ export function apply(ctx: Context, config: Config) {
         const userCaves = await ctx.database.get('best_cave', query);
         if (userCaves.length === 0) return `您还没有投稿过回声洞`;
         const caveIds = userCaves.map(c => c.id).sort((a, b) => a - b).join('|');
-        return `您总计投稿回声洞 ${userCaves.length} 项：\n${caveIds}`;
+        return `总计投稿回声洞 ${userCaves.length} 项：\n${caveIds}`;
       } catch (error) {
         logger.error('查询投稿失败:', error);
         return '查询投稿失败';
@@ -384,7 +383,7 @@ export function apply(ctx: Context, config: Config) {
 
   if (config.enableProfile) {
     cave.subcommand('.profile [nickname:text]', '设置显示昵称')
-      .usage('设置或清除你的昵称，不提供则清除当前昵称')
+      .usage('设置或清除你的昵称，不提供则清除当前昵称。')
       .action(async ({ session }, nickname) => {
         const trimmedNickname = nickname?.trim();
         if (!trimmedNickname) {
@@ -395,6 +394,39 @@ export function apply(ctx: Context, config: Config) {
         // 如果提供了昵称，则设置/更新它
         await profileManager.setNickname(session.userId, trimmedNickname);
         return `昵称已更新：${trimmedNickname}`;
+      });
+  }
+
+  // --- 导入/导出命令 ---
+  if (config.enableDataIO) {
+    cave.subcommand('.export', '导出回声洞数据')
+      .usage('将所有回声洞数据导出到 cave_export.json 中。')
+      .action(async ({ session }) => {
+        if (!config.adminUsers.includes(session.userId)) return;
+
+        try {
+          await session.send('正在导出数据...');
+          await dataIOManager.exportData();
+          return '导出数据成功';
+        } catch (error) {
+          logger.error('导出数据失败:', error);
+          return '导出数据失败';
+        }
+      });
+
+    cave.subcommand('.import', '导入回声洞数据')
+      .usage('从 cave_import.json 中导入回声洞数据。')
+      .action(async ({ session }) => {
+        if (!config.adminUsers.includes(session.userId)) return;
+
+        try {
+          await session.send(`正在导入数据...`);
+          await dataIOManager.importData();
+          return '导入数据成功';
+        } catch (error) {
+          logger.error('导入数据失败:', error);
+          return '导入数据失败';
+        }
       });
   }
 }
