@@ -35,6 +35,24 @@ export class ProfileManager {
   }
 
   /**
+   * 注册与用户昵称相关的命令
+   */
+  public registerCommands(cave) {
+    cave.subcommand('.profile [nickname:text]', '设置显示昵称')
+      .usage('设置你在回声洞中显示的昵称。不提供昵称则清除记录。')
+      .action(async ({ session }, nickname) => {
+        const trimmedNickname = nickname?.trim();
+        if (!trimmedNickname) {
+          await this.clearNickname(session.userId);
+          return '昵称已清除';
+        }
+        await this.setNickname(session.userId, trimmedNickname);
+        return `昵称已更新为：${trimmedNickname}`;
+      });
+  }
+
+
+  /**
    * 设置或更新用户的昵称。
    * @param userId - 目标用户的 ID
    * @param nickname - 要设置的新昵称

@@ -11,17 +11,15 @@ import { Config } from './index'
 export class FileManager {
   private resourceDir: string
   private locks = new Map<string, Promise<any>>() // 本地文件锁，防止并发写入冲突
-  private logger: Logger
   private s3Client?: S3Client
   private s3Bucket?: string
 
   /**
    * @param baseDir Koishi 的基础数据目录
-   * @param logger 日志记录器
    * @param config 插件的完整配置对象
+   * @param logger 日志记录器实例
    */
-  constructor(baseDir: string, logger: Logger, config: Config) {
-    this.logger = logger
+  constructor(baseDir: string, config: Config, private logger: Logger) {
     // 资源文件统一存储在 Koishi data 目录的 cave 子目录下
     this.resourceDir = path.join(baseDir, 'data', 'cave')
 
