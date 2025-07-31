@@ -29,7 +29,7 @@ const logger = new Logger('best-cave');
 export interface StoredElement {
   type: 'text' | 'img' | 'video' | 'audio' | 'file';
   content?: string; // 用于 'text' 类型
-  file?: string;    // 用于媒体类型
+  file?: string;    // 用于媒体类型，现在统一存储文件名
 }
 
 export interface CaveObject {
@@ -54,14 +54,40 @@ export interface Config {
   adminUsers: string[];
   enableProfile: boolean;
   enableDataIO: boolean;
+  enableS3: boolean; // 是否启用S3
+  s3?: {             // S3具体配置
+    endpoint: string;
+    region?: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+    bucket: string;
+    publicUrl?: string; // 可选的公共访问URL前缀
+  };
 }
-export const Config: Schema<Config> = Schema.object({
-  cooldown: Schema.number().default(60).description("冷却时间（秒）"),
-  perChannel: Schema.boolean().default(false).description("分群模式"),
-  enableProfile: Schema.boolean().default(false).description("启用自定义昵称"),
-  enableDataIO: Schema.boolean().default(false).description("启用导入导出"),
-  adminUsers: Schema.array(Schema.string()).default([]).description("管理员 ID").role('table')
-})
+
+export const Config: Schema<Config> = Schema.intersect([
+  Schema.object({
+    cooldown: Schema.number().default(10).description("冷却时间（秒）"),
+    perChannel: Schema.boolean().default(false).description("分群模式"),
+    enableProfile: Schema.boolean().default(false).description("启用自定义昵称"),
+    enableDataIO: Schema.boolean().default(false).description("启用导入导出"),
+    enableS3: Schema.boolean().default(false).description('启用 S3 存储'),
+    adminUsers: Schema.array(Schema.string()).default([]).description("管理员 ID"),
+  }),
+  Schema.union([
+    Schema.object({
+      enableS3: Schema.const(true).required(),
+      s3: Schema.object({
+        endpoint: Schema.string().required().description('端点').role('link'),
+        region: Schema.string().description('区域'),
+        bucket: Schema.string().required().description('名称'),
+        accessKeyId: Schema.string().required().description('Access Key ID').role('secret'),
+        secretAccessKey: Schema.string().required().description(' Access Key Secret').role('secret'),
+        publicUrl: Schema.string().description('公共 URL（可选）').role('link'),
+      }).description('S3 配置'),
+    })
+  ]),
+]);
 
 // --- 插件主逻辑 ---
 export function apply(ctx: Context, config: Config) {
@@ -76,7 +102,7 @@ export function apply(ctx: Context, config: Config) {
     primary: 'id',
   })
 
-  const fileManager = new FileManager(ctx.baseDir, logger)
+  const fileManager = new FileManager(ctx.baseDir, logger, config)
   const lastUsed = new Map<string, number>()
 
   let profileManager: ProfileManager;
@@ -89,39 +115,13 @@ export function apply(ctx: Context, config: Config) {
     dataIOManager = new DataManager(ctx, fileManager, logger, () => getNextCaveId({}));
   }
 
-  /** 将 h 元素数组递归转换为自定义的可序列化对象数组 */
-  const elementsToStoredFormat = (elements: h[]): StoredElement[] => {
-    const results: StoredElement[] = [];
-
-    function traverse(els: h[]) {
-      for (const el of els) {
-        const mediaSrc = el.attrs.src || el.attrs.file;
-        if (el.type === 'img' || el.type === 'image') {
-          results.push({ type: 'img', file: mediaSrc });
-        } else if (['video', 'audio', 'file'].includes(el.type)) {
-          results.push({ type: el.type as any, file: mediaSrc });
-        } else if (el.type === 'text') {
-          const content = el.attrs.content?.trim();
-          if (content) { // 过滤掉空文本和纯空白文本
-            results.push({ type: 'text', content });
-          }
-        }
-        // 递归遍历子元素
-        if (el.children) {
-          traverse(el.children);
-        }
-      }
-    }
-    traverse(elements);
-    return results;
-  };
-
   /** 将自定义的对象数组转换回 h 元素数组 */
   const storedFormatToHElements = (elements: StoredElement[]): h[] => {
     return elements.map(el => {
       if (el.type === 'text') {
         return h.text(el.content);
       }
+      // 对于媒体类型，直接使用 file 字段作为 src
       if (el.type === 'img') {
         return h('image', { src: el.file });
       }
@@ -153,7 +153,9 @@ export function apply(ctx: Context, config: Config) {
     return newId;
   }
 
-  /** 将本地媒体文件转换为 Base64 编码的 h 元素 */
+  /**
+   * 将本地媒体文件转换为 Base64 编码的 h 元素 (仅在本地存储模式下使用)
+   */
   const localMediaElementToBase64 = async (element: h): Promise<h> => {
     const localFile = element.attrs.src;
     try {
@@ -163,37 +165,56 @@ export function apply(ctx: Context, config: Config) {
       const mimeType = mimeTypeMap[ext] || 'application/octet-stream';
       return h(element.type, { ...element.attrs, src: `data:${mimeType};base64,${data.toString('base64')}` });
     } catch (error) {
-      logger.error(`无法加载媒体 ${localFile}:`, error);
+      logger.error(`无法加载本地媒体 ${localFile}:`, error);
       return h('p', {}, `[无法加载媒体: ${element.type}]`);
     }
   };
 
-  /** 从 URL 下载媒体文件并保存到本地 */
-  const downloadMedia = async (url: string, caveId: number, index: number, channelId: string, userId: string): Promise<string> => {
-    const defaultExtMap = { image: '.png', video: '.mp4', audio: '.mp3', file: '.dat' };
-    const urlPath = new URL(url).pathname;
-    const ext = path.extname(urlPath);
-    const type = Object.keys(defaultExtMap).find(t => urlPath.includes(t)) || 'file';
-    const finalExt = ext || defaultExtMap[type];
+  /**
+   * 从 URL 下载媒体文件并通过 FileManager 保存（本地或S3）。
+   * @returns 保存后的文件标识符 (本地文件名或 S3 Key)
+   */
+  const downloadMedia = async (url: string, originalName: string, type: string, caveId: number, index: number, channelId: string, userId: string): Promise<string> => {
+    // 优先从 originalName 中获取扩展名
+    const ext = originalName ? path.extname(originalName) : '';
+
+    // 如果没有，则根据类型使用默认扩展名
+    const defaultExtMap = { 'img': '.jpg', 'image': '.jpg', 'video': '.mp4', 'audio': '.mp3', 'file': '.dat' };
+    const finalExt = ext || defaultExtMap[type] || '.dat';
+
+    // 生成一个唯一的文件名，这将作为本地文件名或 S3 的 Key
     const fileName = `${caveId}_${channelId}_${userId}_${index}${finalExt}`;
     const response = await ctx.http.get(url, { responseType: 'arraybuffer', timeout: 30000 });
-    await fileManager.saveFile(fileName, Buffer.from(response));
-    return fileName;
+    // 调用 fileManager 保存文件，它会根据配置自动处理存储并返回文件名
+    return fileManager.saveFile(fileName, Buffer.from(response));
   };
 
-  /** 构建回声洞消息，优化排版并并行处理媒体文件 */
+  /** 构建回声洞消息，根据配置动态生成媒体 SRC */
   const buildCaveMessage = async (cave: CaveObject): Promise<h[]> => {
-    const mediaTypes = ['image', 'video', 'audio'];
     const caveHElements = storedFormatToHElements(cave.elements);
 
-    // 使用 Promise.all 并行处理所有需要转换的媒体文件
     const processedElements = await Promise.all(caveHElements.map(element => {
-      const isLocalMedia = mediaTypes.includes(element.type) && element.attrs.src &&
-                           !element.attrs.src.startsWith('http') && !element.attrs.src.startsWith('data:');
-      if (isLocalMedia) {
+      // 从数据库中读取的 src 现在统一为文件名
+      const fileName = element.attrs.src;
+      const elementType = element.type;
+      const isMedia = ['image', 'img', 'video', 'audio', 'file'].includes(elementType);
+
+      // 如果不是媒体元素或没有文件名，直接返回
+      if (!isMedia || !fileName) {
+        return Promise.resolve(element);
+      }
+
+      // 根据当前配置动态决定如何处理文件名
+      if (config.enableS3 && config.s3) {
+        // S3 模式：拼接完整的公共 URL
+        const publicUrl = config.s3.publicUrl || `https://${config.s3.endpoint}`;
+        const fullUrl = `${publicUrl}/${config.s3.bucket}/${fileName}`;
+        // 返回一个新的 h 元素，更新其 src 属性为完整的 URL
+        return Promise.resolve(h(elementType, { ...element.attrs, src: fullUrl }));
+      } else {
+        // 本地模式：读取文件并转换为 Base64
         return localMediaElementToBase64(element);
       }
-      return Promise.resolve(element);
     }));
 
     // 使用 <p> 标签确保页眉和页脚独立成行，内容部分则自然排列
@@ -210,6 +231,8 @@ export function apply(ctx: Context, config: Config) {
    * @returns 如果在冷却中，返回提示信息字符串；否则返回 null。
    */
   function checkCooldown(session: Session): string | null {
+    // 管理员无视冷却
+    if (config.adminUsers.includes(session.userId)) return null;
     if (config.cooldown <= 0) return null;
     if (!session.channelId) return null;
 
@@ -233,8 +256,27 @@ export function apply(ctx: Context, config: Config) {
   }
 
   const cave = ctx.command('cave', '回声洞')
+    .option('add', '-a <content:text> 添加回声洞')
+    .option('view', '-g <id:posint> 查看指定回声洞')
+    .option('delete', '-r <id:posint> 删除指定回声洞')
+    .option('list', '-l 查询投稿统计')
     .usage('随机抽取一条已添加的回声洞。')
-    .action(async ({ session }) => {
+    .action(async ({ session, options }) => {
+      // 检查是否有选项被触发，并执行对应的子命令
+      if (options.add) {
+        return session.execute(`cave.add ${options.add}`);
+      }
+      if (options.view) {
+        return session.execute(`cave.view ${options.view}`);
+      }
+      if (options.delete) {
+        return session.execute(`cave.del ${options.delete}`);
+      }
+      if (options.list) {
+        return session.execute('cave.list');
+      }
+
+      // --- 如果没有触发任何选项，则执行默认的随机抽取功能 ---
       const cdMessage = checkCooldown(session);
       if (cdMessage) return cdMessage;
 
@@ -257,43 +299,77 @@ export function apply(ctx: Context, config: Config) {
   cave.subcommand('.add [content:text]', '添加回声洞')
     .usage('添加一条回声洞，可通过回复及引用消息添加。')
     .action(async ({ session }, content) => {
-      const downloadedFiles: string[] = [];
+      const savedFileIdentifiers: string[] = [];
       try {
         let sourceElements: h[];
         if (session.quote?.elements) {
-            sourceElements = session.quote.elements;
+          sourceElements = session.quote.elements;
         } else if (content?.trim()) {
-            sourceElements = h.parse(content);
+          sourceElements = h.parse(content);
         } else {
-            await session.send("请在一分钟内发送内容");
-            const replyContent = await session.prompt(60000);
-            if (!replyContent) return "已取消添加";
-            sourceElements = h.parse(replyContent);
+          await session.send("请在一分钟内发送内容");
+          const replyContent = await session.prompt(60000);
+          if (!replyContent) return "已取消添加";
+          sourceElements = h.parse(replyContent);
         }
 
-        const storedElements = elementsToStoredFormat(sourceElements);
-        if (storedElements.length === 0) return "已取消添加";
-
         const newId = await getNextCaveId();
+        const finalElementsForDb: StoredElement[] = [];
+        let mediaIndex = 1; // 用于为下载的媒体生成唯一文件名
 
-        await Promise.all(storedElements.map(async (element, index) => {
-          if (element.file && element.file.startsWith('http')) {
-            const localFileName = await downloadMedia(element.file, newId, index, session.channelId, session.userId);
-            downloadedFiles.push(localFileName);
-            element.file = localFileName;
+        // 定义一个递归函数来处理 h 元素、下载媒体并构建最终要存储的数组
+        async function traverseAndProcess(els: h[]) {
+          for (const el of els) {
+            let finalElement: StoredElement = null;
+            const elementType = (el.type === 'image' ? 'img' : el.type) as StoredElement['type'];
+
+            if (['img', 'video', 'audio', 'file'].includes(elementType)) {
+              let fileIdentifier = el.attrs.src;
+              // 如果是网络 URL，则下载它
+              if (fileIdentifier && fileIdentifier.startsWith('http')) {
+                // 在此处使用 originalName 获取扩展名，然后丢弃
+                const originalName = el.attrs.file;
+                const savedId = await downloadMedia(fileIdentifier, originalName, elementType, newId, mediaIndex, session.channelId, session.userId);
+                savedFileIdentifiers.push(savedId); // 记录以便失败时回滚
+                fileIdentifier = savedId;
+                mediaIndex++;
+              }
+              // 这里的 fileIdentifier 已经是文件名了
+              finalElement = { type: elementType, file: fileIdentifier };
+
+            } else if (elementType === 'text') {
+              const content = el.attrs.content?.trim();
+              if (content) { // 过滤掉空文本和纯空白文本
+                finalElement = { type: 'text', content };
+              }
+            }
+
+            if (finalElement) {
+              finalElementsForDb.push(finalElement);
+            }
+
+            // 递归遍历子元素
+            if (el.children) {
+              await traverseAndProcess(el.children);
+            }
           }
-        }));
+        }
+
+        await traverseAndProcess(sourceElements);
+
+        // 在处理后，检查是否真的有内容要保存
+        if (finalElementsForDb.length === 0) return "已取消添加";
 
         let userName = session.username;
         if (config.enableProfile) {
-            const customName = await profileManager.getNickname(session.userId);
-            if (customName) userName = customName;
+          const customName = await profileManager.getNickname(session.userId);
+          if (customName) userName = customName;
         }
 
         await ctx.database.create('best_cave', {
           id: newId,
           channelId: session.channelId,
-          elements: storedElements,
+          elements: finalElementsForDb,
           userId: session.userId,
           userName: userName,
           time: new Date(),
@@ -302,8 +378,9 @@ export function apply(ctx: Context, config: Config) {
         return `添加成功，序号为（${newId}）`;
       } catch (error) {
         logger.error('添加回声洞失败:', error);
-        if (downloadedFiles.length > 0) {
-          await Promise.all(downloadedFiles.map(file => fileManager.deleteFile(file)));
+        // 如果添加过程中出错，尝试删除已上传的文件
+        if (savedFileIdentifiers.length > 0) {
+          await Promise.all(savedFileIdentifiers.map(file => fileManager.deleteFile(file)));
         }
         return '添加回声洞失败';
       }
@@ -340,19 +417,22 @@ export function apply(ctx: Context, config: Config) {
 
         const isOwner = targetCave.userId === session.userId;
         const isAdmin = config.adminUsers.includes(session.userId);
+        // 只有所有者或管理员才能删除
         if (!isOwner && !isAdmin) {
           return '只能删除自己的回声洞';
         }
 
-        const caveContent = await buildCaveMessage(targetCave);
-
+        // 删除关联的媒体文件（本地或S3）
         const deletePromises = targetCave.elements
-          .filter(el => el.file && !el.file.startsWith('http'))
-          .map(el => fileManager.deleteFile(el.file));
+          .filter(el => el.file) // 筛选出所有包含文件的元素
+          .map(el => fileManager.deleteFile(el.file)); // el.file 现在是文件名
         await Promise.all(deletePromises);
 
+        // 从数据库中移除记录
         await ctx.database.remove('best_cave', { id });
 
+        // 获取被删除内容用于展示
+        const caveContent = await buildCaveMessage(targetCave);
         const responseMessage = [
           h('p', {}, `已删除回声洞 —— （${id}）`),
           ...caveContent,
