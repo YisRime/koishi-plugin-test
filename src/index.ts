@@ -45,8 +45,8 @@ export interface StoredElement {
  * @property channelId - 提交回声洞的频道 ID，若为私聊则为 null。
  * @property userId - 提交用户的 ID。
  * @property userName - 提交用户的昵称。
- * @property time - 提交时间。
  * @property status - 回声洞状态: 'active' (活跃), 'delete' (待删除), 'pending' (待审核)。
+ * @property time - 提交时间。
  */
 export interface CaveObject {
   id: number
@@ -54,8 +54,8 @@ export interface CaveObject {
   channelId: string
   userId: string
   userName: string
-  time: Date
   status: 'active' | 'delete' | 'pending'
+  time: Date
 }
 
 // 扩展 Koishi 的数据库表接口，以获得 'cave' 表的类型提示。
@@ -123,12 +123,12 @@ export function apply(ctx: Context, config: Config) {
   // 扩展 'cave' 数据表模型。
   ctx.model.extend('cave', {
     id: 'unsigned',       // 无符号整数，作为主键。
-    channelId: 'string',  // 频道 ID。
     elements: 'json',     // 存储为 JSON 字符串的元素数组。
+    channelId: 'string',  // 频道 ID。
     userId: 'string',     // 用户 ID。
     userName: 'string',   // 用户昵称。
-    time: 'timestamp',    // 提交时间。
     status: 'string',     // 回声洞状态。
+    time: 'timestamp',    // 提交时间。
   }, {
     primary: 'id', // 将 'id' 字段设置为主键。
   });
@@ -255,13 +255,12 @@ export function apply(ctx: Context, config: Config) {
         // 构建新的回声洞对象。
         const newCave: CaveObject = {
           id: newId,
-          channelId: session.channelId || null, // 私聊时 channelId 为空，存为 null。
           elements: finalElementsForDb,
+          channelId: session.channelId,
           userId: session.userId,
           userName: userName,
-          time: new Date(),
-          // 如果启用审核，状态为 'pending'，否则直接为 'active'。
           status: config.enableReview ? 'pending' : 'active',
+          time: new Date(),
         };
         await ctx.database.create('cave', newCave);
 

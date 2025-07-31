@@ -193,7 +193,7 @@ export async function downloadMedia(ctx: Context, fileManager: FileManager, url:
   const ext = originalName ? path.extname(originalName) : '';
   const finalExt = ext || defaultExtMap[type] || '.dat';
   // 构建一个唯一的、包含元数据的文件名。
-  const fileName = `${caveId}_${index}_${userId}_${channelId}${finalExt}`;
+  const fileName = `${caveId}_${index}_${channelId}_${userId}${finalExt}`;
 
   // 使用 ctx.http 下载文件，设置响应类型为 arraybuffer 和超时。
   const response = await ctx.http.get(url, { responseType: 'arraybuffer', timeout: 30000 });
