@@ -2,14 +2,23 @@ import { Context, Logger } from 'koishi';
 import { FileManager } from './FileManager';
 import { CaveObject } from './index';
 
-// 定义一个没有 'id' 的 Cave 类型，用于导入/导出
+/**
+ * 用于导入导出的可移植回声洞对象（不含数据库自增 id）。
+ */
 type PortableCaveObject = Omit<CaveObject, 'id'>;
 
 /**
- * DataManager 类负责处理数据的导入和导出。
+ * 负责数据的导入和导出功能。
+ * 仅当配置中启用时才会被实例化。
  */
 export class DataManager {
 
+  /**
+   * @param ctx - Koishi 上下文
+   * @param fileManager - 文件管理器实例
+   * @param logger - 日志记录器
+   * @param getNextCaveId - 用于获取新 ID 的函数
+   */
   constructor(
     private ctx: Context,
     private fileManager: FileManager,
@@ -18,57 +27,54 @@ export class DataManager {
   ) { }
 
   /**
-   * 将全局所有数据导出到 cave_export.json，不包含 id。
-   * @returns 导出的文件名
+   * 导出所有回声洞数据到 `cave_export.json` 文件。
+   * 导出的数据不包含 id，以方便迁移。
    */
   public async exportData(): Promise<string> {
-    const fileName = 'cave_export.json'; // 固定导出文件名
-    try {
-      const cavesToExport = await this.ctx.database.get('best_cave', {});
+    const fileName = 'cave_export.json'; // 定义标准导出文件名
+    const cavesToExport = await this.ctx.database.get('cave', {});
 
-      // 在序列化之前，移除每个对象的 id 字段
-      const portableCaves: PortableCaveObject[] = cavesToExport.map(({ id, ...rest }) => rest);
+    // 移除 id 字段，使其可移植
+    const portableCaves: PortableCaveObject[] = cavesToExport.map(({ id, ...rest }) => rest);
 
-      const data = JSON.stringify(portableCaves, null, 2); // 格式化 JSON 输出
-      // saveFile 会自动覆写已存在的文件
-      await this.fileManager.saveFile(fileName, Buffer.from(data));
-      return;
-    } catch (error) {
-      this.logger.error('数据导出失败:', error);
-      throw error;
-    }
+    // 格式化 JSON 以提高可读性
+    const data = JSON.stringify(portableCaves, null, 2);
+    await this.fileManager.saveFile(fileName, Buffer.from(data));
+
+    return `成功导出 ${portableCaves.length} 条数据`;
   }
 
   /**
-   * 从 cave_import.json 文件全局导入数据到数据库。
-   * @returns 包含导入数量和文件名的对象
+   * 从 `cave_import.json` 文件导入数据。
+   * 会为每条导入的数据分配一个新的、连续的 ID。
    */
-  public async importData(): Promise<{ count: number }> {
-    const fileName = 'cave_import.json'; // 固定导入文件名
+  public async importData(): Promise<string> {
+    const fileName = 'cave_import.json'; // 定义标准导入文件名
     let importedCaves: PortableCaveObject[];
+
     try {
       const fileContent = await this.fileManager.readFile(fileName);
       importedCaves = JSON.parse(fileContent.toString('utf-8'));
       if (!Array.isArray(importedCaves)) {
-        throw new Error('文件格式无效');
+        throw new Error('导入文件格式无效');
       }
     } catch (error) {
-      this.logger.error(`解析导入文件 '${fileName}' 失败:`, error);
-      throw error;
+      this.logger.error(`读取导入文件失败:`, error);
     }
 
-    let mergedCount = 0;
+    let successCount = 0;
     for (const cave of importedCaves) {
-      // 获取下一个可用的全局 ID
+      // 为导入的每条数据分配新的唯一 ID
       const newId = await this.getNextCaveId();
       const newCave: CaveObject = {
         ...cave,
         id: newId,
-        channelId: cave.channelId || null,
+        channelId: cave.channelId || null, // 确保 channelId 不为 undefined
       };
-      await this.ctx.database.create('best_cave', newCave);
-      mergedCount++;
+      await this.ctx.database.create('cave', newCave);
+      successCount++;
     }
-    return;
+
+    return `成功导入 ${successCount} 条回声洞数据`;
   }
 }

@@ -1,65 +1,69 @@
 import { Context } from 'koishi'
 
+/**
+ * 数据库中存储的用户昵称信息结构。
+ */
 export interface UserProfile {
   userId: string;
   nickname: string;
 }
 
-// 扩展 Tables 接口以包含新的表
+// 扩展 Koishi 的 Tables 接口，以获得类型提示
 declare module 'koishi' {
   interface Tables {
-    best_cave_user_profile: UserProfile;
+    cave_user: UserProfile;
   }
 }
 
 /**
- * ProfileManager 类负责管理用户的自定义昵称。
+ * 管理用户在回声洞插件中的自定义昵称。
+ * 提供了设置、获取和清除昵称的功能。
  */
 export class ProfileManager {
 
-  // 在构造函数中接收 Context 实例并初始化数据库表
+  /**
+   * @param ctx Koishi 上下文，用于初始化数据库模型
+   */
   constructor(private ctx: Context) {
-    this.ctx.model.extend('best_cave_user_profile', {
-      userId: 'string',
-      nickname: 'string',
+    // 扩展数据库模型，定义表结构
+    this.ctx.model.extend('cave_user', {
+      userId: 'string', // 用户 ID
+      nickname: 'string', // 用户自定义昵称
     }, {
-      primary: 'userId', // 使用 userId作为主键
+      primary: 'userId', // 使用 userId 作为主键，确保唯一性
     });
   }
 
   /**
-   * 为指定用户设置或更新昵称。
-   * @param userId 用户 ID
-   * @param nickname 要设置的新昵称
+   * 设置或更新用户的昵称。
+   * @param userId - 目标用户的 ID
+   * @param nickname - 要设置的新昵称
    */
   public async setNickname(userId: string, nickname: string): Promise<void> {
-    // 使用 upsert 方法，如果用户记录已存在则更新，否则插入新记录
-    await this.ctx.database.upsert('best_cave_user_profile', [{
+    // 使用 upsert (update or insert) 实现创建或更新操作
+    await this.ctx.database.upsert('cave_user', [{
       userId,
       nickname,
     }]);
   }
 
   /**
-   * 获取指定用户的昵称。
-   * @param userId 用户 ID
-   * @returns 如果找到则返回用户的昵称，否则返回 null
+   * 获取用户的昵称。
+   * @param userId - 目标用户的 ID
+   * @returns 返回用户的昵称字符串，如果未设置则返回 null
    */
   public async getNickname(userId: string): Promise<string | null> {
-    const profile = await this.ctx.database.get('best_cave_user_profile', { userId });
-    // get 返回的是数组，如果数组不为空，则取第一个元素的 nickname
-    if (profile.length > 0) {
-      return profile[0].nickname;
-    }
-    return null;
+    // .get() 方法返回一个数组
+    const profiles = await this.ctx.database.get('cave_user', { userId });
+    return profiles[0]?.nickname || null;
   }
 
   /**
-   * 清除指定用户的昵称。
-   * @param userId 用户 ID
+   * 清除用户的昵称设置。
+   * @param userId - 目标用户的 ID
    */
   public async clearNickname(userId: string): Promise<void> {
-    // 通过用户 ID 从数据库中删除对应的条目
-    await this.ctx.database.remove('best_cave_user_profile', { userId });
+    // 从数据库中删除对应的记录
+    await this.ctx.database.remove('cave_user', { userId });
   }
 }
